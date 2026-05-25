@@ -5,6 +5,7 @@ Provides Prometheus-compatible metrics, health/readiness endpoints, HTTP middlew
 
 ---
 
+
 ## Installation
 
 ```bash
