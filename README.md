@@ -113,4 +113,4 @@ scrape_configs:
     static_configs:
       - targets: ['core-api-host:8080']
     metrics_path: '/metrics'
-```
+`
