@@ -6,7 +6,9 @@ const metricsHandler = () => {
         try {
             const metrics = await registry.metrics();
             res.set('Content-Type', registry.contentType);
-            registry.resetMetrics();
+            if (config.resetAfterScrape) {
+                registry.resetMetrics();
+            }
             res.end(metrics);
         } catch (err) {
             res.status(500).end(err.message);
