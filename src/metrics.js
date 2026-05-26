@@ -179,13 +179,7 @@ function initMetrics(options = {}) {
         mongooseDefaultMetricsPlugin();
     }
 
-    if (!config.disableConnectorMetrics) {
-        Platform.ConnectorMetrics = new ConnectorMetrics(config);
-    }
 
-    if (!config.disableMicroflowMetrics) {
-        Platform.MicroflowMetrics = new MicroflowMetrics(config);
-    }
 
     defaultLabelValues.service_name = config.serviceName;
     defaultLabelValues.environment = config.environment;

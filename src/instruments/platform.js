@@ -12,7 +12,6 @@ class ConnectorMetrics {
     #disabled;
     constructor(config={}) {
         this.#config = config;
-        this.#disabled = this.#config.disableConnectorMetrics || false;
         this.#histogram = registry.getSingleMetric("platform_connector_request_duration_seconds") || new Histogram({
             name: "platform_connector_request_duration_seconds",
             help: "Duration of connector requests in seconds",
@@ -35,7 +34,7 @@ class ConnectorMetrics {
     }
 
     incError(values = {}) {
-        if (this.#disabled) {
+        if (this.#config.disableConnectorMetrics) {
             return;
         }
         if (this.#counter) {
@@ -43,7 +42,7 @@ class ConnectorMetrics {
         }
     }
     observe(values = {}, duration) {
-        if (this.#disabled) {
+        if (this.#config.disableConnectorMetrics) {
             return;
         }
         if (this.#histogram) {
@@ -52,7 +51,7 @@ class ConnectorMetrics {
     }
 
     inc(values = {}) {
-        if (this.#disabled) {
+        if (this.#config.disableConnectorMetrics) {
             return;
         }
         if (this.#activeRequests) {
@@ -60,7 +59,7 @@ class ConnectorMetrics {
         }
     }
     dec(values = {}) {
-        if (this.#disabled) {
+        if (this.#config.disableConnectorMetrics) {
             return;
         }
         if (this.#activeRequests) {
@@ -77,7 +76,6 @@ class MicroflowMetrics {
     #disabled;
     constructor(config={}) {
         this.#config = config;
-        this.#disabled = this.#config.disableMicroflowMetrics || false;
         this.#histogram = registry.getSingleMetric("platform_microflow_request_duration_seconds") || new Histogram({
             name: "platform_microflow_request_duration_seconds",
             help: "Duration of microflow requests in seconds",
@@ -100,7 +98,7 @@ class MicroflowMetrics {
     }
 
     incError(values = {}) {
-        if (this.#disabled) {
+        if (this.#config.disableMicroflowMetrics) {
             return;
         }
         if (this.#counter) {
@@ -108,7 +106,7 @@ class MicroflowMetrics {
         }
     }
     observe(values = {}, duration) {
-        if (this.#disabled) {
+        if (this.#config.disableMicroflowMetrics) {
             return;
         }
         if (this.#histogram) {
@@ -116,7 +114,7 @@ class MicroflowMetrics {
         }
     }
     inc(values = {}) {
-        if (this.#disabled) {
+        if (this.#config.disableMicroflowMetrics) {
             return;
         }
         if (this.#activeRequests) {
@@ -124,7 +122,7 @@ class MicroflowMetrics {
         }
     }
     dec(values = {}) {
-        if (this.#disabled) {
+        if (this.#config.disableMicroflowMetrics) {
             return;
         }
         if (this.#activeRequests) {
