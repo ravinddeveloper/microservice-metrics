@@ -115,6 +115,11 @@ const appUptimeSeconds = new Gauge({
     help: 'Application uptime in seconds',
     labelNames: [...DEFAULT_LABELS],
     registers: [registry],
+    collect() {
+        if (config.getUpTime) {
+            this.set(defaultLabelValues, process.uptime());
+        }
+    }
 });
 
 const vmUptimeSeconds = new Gauge({
@@ -122,6 +127,11 @@ const vmUptimeSeconds = new Gauge({
     help: 'VM(host) uptime in seconds',
     labelNames: [...DEFAULT_LABELS],
     registers: [registry],
+    collect() {
+        if (config.getVmUpTime) {
+            this.set(defaultLabelValues, os.uptime());
+        }
+    }
 });
 
 // const dependencyRequestDurationSummary = new Summary({
@@ -189,12 +199,6 @@ function initMetrics(options = {}) {
 
     if (config.includeSystemMetrics) {
         collectDefaultMetrics({ register: registry, labels: defaultLabelValues });
-    }
-    if (config.getUpTime) {
-        appUptimeSeconds.set(defaultLabelValues, process.uptime());
-    }
-    if (config.getVmUpTime) {
-        vmUptimeSeconds.set(defaultLabelValues, os.uptime());
     }
 
     if (config.pushgatewayUrl) {

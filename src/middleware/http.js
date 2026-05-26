@@ -33,8 +33,14 @@ const metricsMiddleware = () => {
         try {
             const method = req.method;
             const startTime = process.hrtime.bigint();
+            const startEndpoint = req.path || 'unknown';
+            const trackedInFlight = shouldTrack(method, startEndpoint);
 
             res.on('finish', () => {
+                if (trackedInFlight) {
+                    httpRequestsInFlight.dec({ method, endpoint: startEndpoint, ...defaultLabelValues });
+                }
+
                 const endpoint = resolveEndpoint(req);
                 if (!shouldTrack(method, endpoint)) return;
 
@@ -42,7 +48,6 @@ const metricsMiddleware = () => {
                 const status = String(res.statusCode);
                 const labels = { method, endpoint, ...defaultLabelValues };
 
-                httpRequestsInFlight.dec({ method, endpoint, ...defaultLabelValues });
                 httpRequestDuration.observe(labels, durationSeconds);
                 httpRequestsTotal.inc({ ...labels, status });
 
@@ -56,9 +61,8 @@ const metricsMiddleware = () => {
                 }
             });
 
-            const endpoint = req.path || 'unknown';
-            if (shouldTrack(method, endpoint)) {
-                httpRequestsInFlight.inc({ method, endpoint, ...defaultLabelValues });
+            if (trackedInFlight) {
+                httpRequestsInFlight.inc({ method, endpoint: startEndpoint, ...defaultLabelValues });
             }
         } catch (error) {
             console.error('Error tracking http metrics:', error);

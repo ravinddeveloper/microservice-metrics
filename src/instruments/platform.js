@@ -16,7 +16,7 @@ class ConnectorMetrics {
             name: "platform_connector_request_duration_seconds",
             help: "Duration of connector requests in seconds",
             labelNames: [...DEFAULT_LABELS, "name", "connectorId"],
-            buckets: [50, 100, 250, 500, 1000, 2000, 5000],
+            buckets: this.#config.buckets || [0.05, 0.1, 0.25, 0.5, 1, 2, 5],
             registers: [registry],
         });
         this.#counter = registry.getSingleMetric("platform_connector_error_total") || new Counter({
@@ -80,7 +80,7 @@ class MicroflowMetrics {
             name: "platform_microflow_request_duration_seconds",
             help: "Duration of microflow requests in seconds",
             labelNames: [...DEFAULT_LABELS, "name", "microflowId"],
-            buckets: [50, 100, 250, 500, 1000, 2000, 5000],
+            buckets: this.#config.buckets || [0.05, 0.1, 0.25, 0.5, 1, 2, 5],
             registers: [registry],
         });
         this.#counter = registry.getSingleMetric("platform_microflow_error_total") || new Counter({
