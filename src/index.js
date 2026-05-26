@@ -1,4 +1,4 @@
-export { initMetrics, Builder, CustomMetric } from './metrics.js';
+export { initMetrics, Builder, CustomCounter, CustomGauge, CustomHistogram, CustomSummary, Platform } from './metrics.js';
 export { metricsMiddleware } from './middleware/http.js';
 export { ipAllowlistMiddleware } from './middleware/security.js';
 export { trackDependency } from './instruments/dependency.js';

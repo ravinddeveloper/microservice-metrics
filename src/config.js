@@ -7,17 +7,19 @@ let config = {
     metricsPort: null,
     includeSystemMetrics: true,
     allowedIPs: '',
-    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+    buckets: [50, 100, 250, 500, 1000, 2000, 5000],
     endpointAllowlist: [],
     endpointDenylist: ["GET:/health", "GET:/ready", "GET:/metrics"],
     slowThresholdSeconds: 3,
-    resetAfterScrape: false,
+    resetAfterScrape: true,
     resetIntervalSeconds: null,
     pushgatewayUrl: null,
     getUpTime: true,
     getVmUpTime: true,
     mongoOperationMetrics: false,
     trackOutbound: false,
+    disableConnectorMetrics: false,
+    disableMicroflowMetrics: false,
 };
 
 export default config;

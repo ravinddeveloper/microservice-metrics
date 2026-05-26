@@ -2,7 +2,6 @@ import config from '../config.js';
 import {
     httpRequestsTotal,
     httpRequestDuration,
-    httpRequestDurationSummary,
     httpRequestsInFlight,
     httpErrorsTotal,
     httpSlowRequestsTotal,
@@ -45,7 +44,6 @@ const metricsMiddleware = () => {
 
                 httpRequestsInFlight.dec({ method, endpoint, ...defaultLabelValues });
                 httpRequestDuration.observe(labels, durationSeconds);
-                // httpRequestDurationSummary.observe(labels, durationSeconds);
                 httpRequestsTotal.inc({ ...labels, status });
 
                 if (durationSeconds >= config.slowThresholdSeconds) {

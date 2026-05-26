@@ -2,6 +2,7 @@ import client from 'prom-client';
 import config from './config.js';
 import { trackOutboundDependencies } from './instruments/outbound.js';
 import { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
+import { ConnectorMetrics, MicroflowMetrics } from './instruments/platform.js';
 import os from 'os';
 
 const { Registry, Counter, Histogram, Gauge, Summary, collectDefaultMetrics, Pushgateway } = client;
@@ -17,6 +18,8 @@ const defaultLabelValues = {
 };
 
 registry.setDefaultLabels(defaultLabelValues);
+
+const Platform = { ConnectorMetrics: new ConnectorMetrics(config), MicroflowMetrics: new MicroflowMetrics(config) };
 
 const httpRequestsTotal = new Counter({
     name: 'http_requests_total',
@@ -100,16 +103,6 @@ const mongooseReconnectsTotal = new Counter({
     registers: [registry],
 });
 
-const httpRequestDurationSummary = new Summary({
-    name: 'http_request_duration_summary_seconds',
-    help: 'HTTP request duration percentiles (p50, p90, p95, p99)',
-    labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
-    percentiles: [0.5, 0.9, 0.95, 0.99],
-    maxAgeSeconds: 600,
-    ageBuckets: 5,
-    registers: [registry],
-});
-
 const httpSlowRequestsTotal = new Counter({
     name: 'http_slow_requests_total',
     help: 'Total HTTP requests exceeding the slow threshold',
@@ -185,6 +178,15 @@ function initMetrics(options = {}) {
     } else if (config.mongoOperationMetrics) {
         mongooseDefaultMetricsPlugin();
     }
+
+    if (!config.disableConnectorMetrics) {
+        Platform.ConnectorMetrics = new ConnectorMetrics(config);
+    }
+
+    if (!config.disableMicroflowMetrics) {
+        Platform.MicroflowMetrics = new MicroflowMetrics(config);
+    }
+
     defaultLabelValues.service_name = config.serviceName;
     defaultLabelValues.environment = config.environment;
     defaultLabelValues.instance = config.instance;
@@ -221,7 +223,6 @@ export {
     defaultLabelValues,
     httpRequestsTotal,
     httpRequestDuration,
-    httpRequestDurationSummary,
     httpRequestsInFlight,
     httpErrorsTotal,
     httpSlowRequestsTotal,
@@ -235,6 +236,7 @@ export {
     mongooseReconnectsTotal,
     mongooseMetricsPlugin,
     initMetrics,
+    Platform
 };
 
 export const Builder = {
@@ -248,41 +250,42 @@ export const Builder = {
     activeRegistry: registry,
 };
 
-export const CustomMetric = (name, help = "Custom Metric", labelNames = [], metricType, buckets = config.buckets) => {
-    switch (metricType) {
-        case 'Counter':
-            return new Counter({
-                name,
-                help,
-                labelNames: [...DEFAULT_LABELS, ...labelNames],
-                registers: [registry],
-            });
-        case 'Histogram':
-            return new Histogram({
-                name,
-                help,
-                labelNames: [...DEFAULT_LABELS, ...labelNames],
-                buckets,
-                registers: [registry],
-            });
-        case 'Gauge':
-            return new Gauge({
-                name,
-                help,
-                labelNames: [...DEFAULT_LABELS, ...labelNames],
-                registers: [registry],
-            });
-        case 'Summary':
-            return new Summary({
-                name,
-                help,
-                labelNames: [...DEFAULT_LABELS, ...labelNames],
-                percentiles: [0.5, 0.9, 0.95, 0.99],
-                maxAgeSeconds: 600,
-                ageBuckets: 5,
-                registers: [registry],
-            });
-        default:
-            return null;
-    }
-};
+export const CustomCounter = (name, help, labelNames) => {
+    return new Counter({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        registers: [registry],
+    })
+}
+
+export const CustomGauge = (name, help, labelNames) => {
+    return new Gauge({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        registers: [registry],
+    })
+}
+
+export const CustomHistogram = (name, help, labelNames, buckets = config.buckets) => {
+    return new Histogram({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        buckets,
+        registers: [registry],
+    })
+}
+
+export const CustomSummary = (name, help, labelNames) => {
+    return new Summary({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        percentiles: [0.5, 0.9, 0.95, 0.99],
+        maxAgeSeconds: 600,
+        ageBuckets: 5,
+        registers: [registry],
+    })
+}
