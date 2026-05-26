@@ -42,10 +42,14 @@ const mongooseMetricsPlugin = (schema) => {
 
             if (this.mongooseCollection && this.mongooseCollection.name) {
                 collectionName = this.mongooseCollection.name;
-            }
-
-            else if (this.constructor && this.constructor.collection && this.constructor.collection.name) {
+            } else if (this.model && this.model.collection && this.model.collection.name) {
+                collectionName = this.model.collection.name;
+            } else if (this._model && this._model.collection && this._model.collection.name) {
+                collectionName = this._model.collection.name;
+            } else if (this.constructor && this.constructor.collection && this.constructor.collection.name) {
                 collectionName = this.constructor.collection.name;
+            } else if (this.collection && this.collection.name) {
+                collectionName = this.collection.name;
             }
 
             const operation = this.op || (typeof this.isNew === 'boolean' ? 'save' : 'unknown');
@@ -86,15 +90,14 @@ const mongooseMetricsPlugin = (schema) => {
 
             if (this.mongooseCollection && this.mongooseCollection.name) {
                 collectionName = this.mongooseCollection.name;
-            }
-            else if (this.constructor && this.constructor.collection && this.constructor.collection.name) {
+            } else if (this.model && this.model.collection && this.model.collection.name) {
+                collectionName = this.model.collection.name;
+            } else if (this._model && this._model.collection && this._model.collection.name) {
+                collectionName = this._model.collection.name;
+            } else if (this.constructor && this.constructor.collection && this.constructor.collection.name) {
                 collectionName = this.constructor.collection.name;
-            }
-            else if (this._model && this._model.collection && this._model.collection.name) {
-                collectionName = this._model.collection.name;
-            }
-            else if (this._model && this._model.collection && this._model.collection.name) {
-                collectionName = this._model.collection.name;
+            } else if (this.collection && this.collection.name) {
+                collectionName = this.collection.name;
             }
 
             const operation = this.op || (typeof this.isNew === 'boolean' ? 'save' : 'unknown');
