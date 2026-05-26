@@ -1,8 +1,9 @@
+import os from 'os';
 
-const config = {
-    serviceName: 'unknown-service',
-    environment: 'unknown',
-    instance: 'unknown',
+let config = {
+    serviceName: os.hostname(),
+    environment: null,
+    instance: os.hostname(),
     metricsPort: null,
     includeSystemMetrics: true,
     allowedIPs: '',
@@ -13,8 +14,10 @@ const config = {
     resetAfterScrape: false,
     resetIntervalSeconds: null,
     pushgatewayUrl: null,
-    getUpTime: false,
-    pushIntervalSeconds: 15,
+    getUpTime: true,
+    getVmUpTime: true,
+    mongoOperationMetrics: false,
+    trackOutbound: false,
 };
 
 export default config;

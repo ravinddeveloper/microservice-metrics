@@ -31,35 +31,39 @@ const resolveEndpoint = (req) => {
 
 const metricsMiddleware = () => {
     return (req, res, next) => {
-        const method = req.method;
-        const startTime = process.hrtime.bigint();
+        try {
+            const method = req.method;
+            const startTime = process.hrtime.bigint();
 
-        res.on('finish', () => {
-            const endpoint = resolveEndpoint(req);
-            if (!shouldTrack(method, endpoint)) return;
+            res.on('finish', () => {
+                const endpoint = resolveEndpoint(req);
+                if (!shouldTrack(method, endpoint)) return;
 
-            const durationSeconds = Number(process.hrtime.bigint() - startTime) / 1e9;
-            const status = String(res.statusCode);
-            const labels = { method, endpoint, ...defaultLabelValues };
+                const durationSeconds = Number(process.hrtime.bigint() - startTime) / 1e9;
+                const status = String(res.statusCode);
+                const labels = { method, endpoint, ...defaultLabelValues };
 
-            httpRequestsInFlight.dec({ method, endpoint, ...defaultLabelValues });
-            httpRequestDuration.observe(labels, durationSeconds);
-            httpRequestDurationSummary.observe(labels, durationSeconds);
-            httpRequestsTotal.inc({ ...labels, status });
+                httpRequestsInFlight.dec({ method, endpoint, ...defaultLabelValues });
+                httpRequestDuration.observe(labels, durationSeconds);
+                // httpRequestDurationSummary.observe(labels, durationSeconds);
+                httpRequestsTotal.inc({ ...labels, status });
 
-            if (durationSeconds >= config.slowThresholdSeconds) {
-                httpSlowRequestsTotal.inc({ method, endpoint, ...defaultLabelValues });
+                if (durationSeconds >= config.slowThresholdSeconds) {
+                    httpSlowRequestsTotal.inc({ method, endpoint, ...defaultLabelValues });
+                }
+
+                if (res.statusCode >= 400) {
+                    const error_type = res.statusCode >= 500 ? '5xx' : '4xx';
+                    httpErrorsTotal.inc({ method, endpoint, error_type, ...defaultLabelValues });
+                }
+            });
+
+            const endpoint = req.path || 'unknown';
+            if (shouldTrack(method, endpoint)) {
+                httpRequestsInFlight.inc({ method, endpoint, ...defaultLabelValues });
             }
-
-            if (res.statusCode >= 400) {
-                const error_type = res.statusCode >= 500 ? '5xx' : '4xx';
-                httpErrorsTotal.inc({ method, endpoint, error_type, ...defaultLabelValues });
-            }
-        });
-
-        const endpoint = req.path || 'unknown';
-        if (shouldTrack(method, endpoint)) {
-            httpRequestsInFlight.inc({ method, endpoint, ...defaultLabelValues });
+        } catch (error) {
+            console.error('Error tracking http metrics:', error);
         }
 
         next();

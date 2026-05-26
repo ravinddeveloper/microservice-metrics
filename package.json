@@ -20,6 +20,7 @@
     "license": "ISC",
     "dependencies": {
         "ip-range-check": "0.2.0",
+        "mongoose": "^9.6.2",
         "prom-client": "^15.1.0"
     },
     "devDependencies": {
