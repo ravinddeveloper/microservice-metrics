@@ -11,6 +11,10 @@ Provides Prometheus-compatible metrics, health/readiness endpoints, HTTP middlew
 
 ## Installation
 
+
+
+
+
 ```bash
 npm install @latitudenpm/metrics
 # or local link
