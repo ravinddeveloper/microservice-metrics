@@ -1,5 +1,9 @@
 import client from 'prom-client';
 import config from './config.js';
+import { trackOutboundDependencies } from './instruments/outbound.js';
+import { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
+import { ConnectorMetrics, MicroflowMetrics } from './instruments/platform.js';
+import os from 'os';
 
 const { Registry, Counter, Histogram, Gauge, Summary, collectDefaultMetrics, Pushgateway } = client;
 
@@ -14,6 +18,8 @@ const defaultLabelValues = {
 };
 
 registry.setDefaultLabels(defaultLabelValues);
+
+const Platform = { ConnectorMetrics: new ConnectorMetrics(config), MicroflowMetrics: new MicroflowMetrics(config) };
 
 const httpRequestsTotal = new Counter({
     name: 'http_requests_total',
@@ -33,7 +39,7 @@ const httpRequestDuration = new Histogram({
 const httpRequestsInFlight = new Gauge({
     name: 'http_requests_in_flight',
     help: 'Currently in-flight HTTP requests (Active Requests Count)',
-    labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
+    labelNames: ['method', ...DEFAULT_LABELS],
     registers: [registry],
 });
 
@@ -59,13 +65,41 @@ const dependencyFailuresTotal = new Counter({
     registers: [registry],
 });
 
-const httpRequestDurationSummary = new Summary({
-    name: 'http_request_duration_summary_seconds',
-    help: 'HTTP request duration percentiles (p50, p90, p95, p99)',
-    labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
-    percentiles: [0.5, 0.9, 0.95, 0.99],
-    maxAgeSeconds: 600,
-    ageBuckets: 5,
+const mongooseQueryDuration = new Histogram({
+    name: 'mongoose_query_duration_seconds',
+    help: 'Mongoose query latency in seconds',
+    labelNames: ['collection', 'operation', ...DEFAULT_LABELS],
+    buckets: config.buckets,
+    registers: [registry],
+});
+
+const mongooseQueryTotal = new Counter({
+    name: 'mongoose_query_total',
+    help: 'Total number of Mongoose queries',
+    labelNames: ['collection', 'operation', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const mongooseQueryErrorsTotal = new Counter({
+    name: 'mongoose_query_errors_total',
+    help: 'Total number of Mongoose query errors',
+    labelNames: ['collection', 'operation', 'error_type', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const mongooseAggregationDuration = new Histogram({
+    name: 'mongoose_aggregation_duration_seconds',
+    help: 'Mongoose aggregation latency in seconds',
+    labelNames: ['collection', ...DEFAULT_LABELS],
+    buckets: config.buckets,
+    registers: [registry],
+});
+
+
+const mongooseReconnectsTotal = new Counter({
+    name: 'mongoose_reconnects_total',
+    help: 'Total number of Mongoose reconnects',
+    labelNames: [...DEFAULT_LABELS],
     registers: [registry],
 });
 
@@ -81,54 +115,90 @@ const appUptimeSeconds = new Gauge({
     help: 'Application uptime in seconds',
     labelNames: [...DEFAULT_LABELS],
     registers: [registry],
+    collect() {
+        if (config.getUpTime) {
+            this.set(defaultLabelValues, process.uptime());
+        }
+    }
 });
 
-const dependencyRequestDurationSummary = new Summary({
-    name: 'dependency_request_duration_summary_seconds',
-    help: 'Dependency call duration percentiles (p50, p90, p95, p99)',
-    labelNames: ['dependency', 'operation', ...DEFAULT_LABELS],
-    percentiles: [0.5, 0.9, 0.95, 0.99],
-    maxAgeSeconds: 600,
-    ageBuckets: 5,
+const vmUptimeSeconds = new Gauge({
+    name: 'vm_uptime_seconds',
+    help: 'VM(host) uptime in seconds',
+    labelNames: [...DEFAULT_LABELS],
     registers: [registry],
+    collect() {
+        if (config.getVmUpTime) {
+            this.set(defaultLabelValues, os.uptime());
+        }
+    }
 });
 
-let uptimeInterval = null;
-const appStartTime = Date.now();
+// const dependencyRequestDurationSummary = new Summary({
+//     name: 'dependency_request_duration_summary_seconds',
+//     help: 'Dependency call duration percentiles (p50, p90, p95, p99)',
+//     labelNames: ['dependency', 'operation', ...DEFAULT_LABELS],
+//     percentiles: [0.5, 0.9, 0.95, 0.99],
+//     maxAgeSeconds: 600,
+//     ageBuckets: 5,
+//     registers: [registry],
+// });
 
+/**
+ * @param {Object} options
+ * @param {string} [serviceName]
+ * @param {string} [environment]
+ * @param {string} [instance]
+ * @param {boolean} [trackOutbound=true]
+ * @param {Object} [mongoose]
+ * @param {boolean} [mongoOperationMetrics=false]
+ * @param {string[]} [endpointDenylist=[]]
+ * @param {string[]} [endpointAllowlist=[]]
+ * @param {number[]} [buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]]
+ * @param {number} [slowThresholdSeconds=3]
+ * @param {string} [pushgatewayUrl]
+ * @param {boolean} [resetAfterScrape=false]
+ * @param {string} [hostname]
+ * @param {boolean} [includeSystemMetrics=true]
+ * @param {boolean} [getUpTime=true]
+ * @param {boolean} [getVmUpTime=false]
+ */
 function initMetrics(options = {}) {
-    // Override config with provided options
-    if (options.serviceName) config.serviceName = options.serviceName;
-    if (options.environment) config.environment = options.environment;
-    if (options.instance) config.instance = options.instance;
-    if (options.includeSystemMetrics !== undefined) config.includeSystemMetrics = options.includeSystemMetrics;
-    if (options.slowThresholdSeconds !== undefined) config.slowThresholdSeconds = options.slowThresholdSeconds;
-    if (options.allowedIPs !== undefined) config.allowedIPs = options.allowedIPs;
-    if (options.buckets) config.buckets = options.buckets;
-    if (options.endpointAllowlist) config.endpointAllowlist = [...config.endpointAllowlist, ...(options?.endpointAllowlist || [])];
-    if (options.endpointDenylist) config.endpointDenylist = [...config.endpointDenylist, ...(options?.endpointDenylist || [])];
-    if (options.resetAfterScrape !== undefined) config.resetAfterScrape = options.resetAfterScrape;
-    if (options.resetIntervalSeconds) config.resetIntervalSeconds = options.resetIntervalSeconds;
-    if (options.pushgatewayUrl) config.pushgatewayUrl = options.pushgatewayUrl;
-    if (options.pushIntervalSeconds) config.pushIntervalSeconds = options.pushIntervalSeconds;
-    if (options.getUpTime !== undefined) config.getUpTime = options.getUpTime;
+    Object.assign(config, {
+        ...(options || {}),
+        endpointAllowlist: [...config.endpointAllowlist, ...(options?.endpointAllowlist || [])],
+        endpointDenylist: [...config.endpointDenylist, ...(options?.endpointDenylist || [])],
+    });
 
-    // Update default labels based on new config
+    if (config.trackOutbound) {
+        trackOutboundDependencies();
+    }
+
+    if (config.mongoose) {
+        config.mongoose.plugin(mongooseMetricsPlugin);
+
+        if (typeof config.mongoose.modelNames === 'function') {
+            config.mongoose.modelNames().forEach(modelName => {
+                const schema = config.mongoose.model(modelName).schema;
+                if (schema) {
+                    schema.plugin(mongooseMetricsPlugin);
+                }
+            });
+        }
+    } else if (config.mongoOperationMetrics) {
+        mongooseDefaultMetricsPlugin();
+    }
+
+
+
     defaultLabelValues.service_name = config.serviceName;
     defaultLabelValues.environment = config.environment;
     defaultLabelValues.instance = config.instance;
-    
+
     registry.setDefaultLabels(defaultLabelValues);
 
     if (config.includeSystemMetrics) {
         collectDefaultMetrics({ register: registry, labels: defaultLabelValues });
-    }
-    if (config.getUpTime) {
-        appUptimeSeconds.set(defaultLabelValues, 0);
-        uptimeInterval = setInterval(() => {
-            appUptimeSeconds.set(defaultLabelValues, (Date.now() - appStartTime) / 1000);
-        }, 5000);
-        if (uptimeInterval.unref) uptimeInterval.unref();
     }
 
     if (config.pushgatewayUrl) {
@@ -151,13 +221,69 @@ export {
     defaultLabelValues,
     httpRequestsTotal,
     httpRequestDuration,
-    httpRequestDurationSummary,
     httpRequestsInFlight,
     httpErrorsTotal,
     httpSlowRequestsTotal,
     appUptimeSeconds,
     dependencyRequestDuration,
-    dependencyRequestDurationSummary,
     dependencyFailuresTotal,
+    mongooseQueryDuration,
+    mongooseQueryTotal,
+    mongooseQueryErrorsTotal,
+    mongooseAggregationDuration,
+    mongooseReconnectsTotal,
+    mongooseMetricsPlugin,
     initMetrics,
+    Platform
 };
+
+export const Builder = {
+    Gauge,
+    Counter,
+    Histogram,
+    Summary,
+    Registry,
+    Pushgateway,
+    collectDefaultMetrics,
+    activeRegistry: registry,
+};
+
+export const CustomCounter = (name, help, labelNames) => {
+    return new Counter({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        registers: [registry],
+    })
+}
+
+export const CustomGauge = (name, help, labelNames) => {
+    return new Gauge({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        registers: [registry],
+    })
+}
+
+export const CustomHistogram = (name, help, labelNames, buckets = config.buckets) => {
+    return new Histogram({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        buckets,
+        registers: [registry],
+    })
+}
+
+export const CustomSummary = (name, help, labelNames) => {
+    return new Summary({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        percentiles: [0.5, 0.9, 0.95, 0.99],
+        maxAgeSeconds: 600,
+        ageBuckets: 5,
+        registers: [registry],
+    })
+}
