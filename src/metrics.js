@@ -39,7 +39,7 @@ const httpRequestDuration = new Histogram({
 const httpRequestsInFlight = new Gauge({
     name: 'http_requests_in_flight',
     help: 'Currently in-flight HTTP requests (Active Requests Count)',
-    labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
+    labelNames: ['method', ...DEFAULT_LABELS],
     registers: [registry],
 });
 
