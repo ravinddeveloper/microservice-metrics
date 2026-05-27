@@ -7,6 +7,23 @@ import {
     httpSlowRequestsTotal,
     defaultLabelValues,
 } from '../metrics.js';
+import { parse, getOperationAST } from "graphql";
+
+const getGraphQLRootField = (req) => {
+    try {
+        if (!req.body?.query) return null;
+        const document = parse(req.body.query);
+        const operationName = (req.body && req.body.operationName) || (req.query && req.query.operationName);
+        const operation = getOperationAST(document, operationName);
+        if (!operation) return null;
+        const fields = operation.selectionSet.selections
+            .filter(sel => sel.kind === "Field")
+            .map(sel => sel.name.value);
+        return fields.length ? fields.join(",") : null;
+    } catch {
+        return null;
+    }
+};
 
 const shouldTrack = (method, endpoint) => {
     const key = `${method.toUpperCase()}:${endpoint}`;
@@ -21,11 +38,27 @@ const shouldTrack = (method, endpoint) => {
 };
 
 const resolveEndpoint = (req) => {
+    let endpoint = 'unknown';
     if (req.route && req.route.path) {
         const base = req.baseUrl || '';
-        return base + req.route.path;
+        endpoint = base + req.route.path;
+    } else {
+        endpoint = req.path || 'unknown';
     }
-    return req.path || 'unknown';
+
+    if (endpoint.includes('graphql')) {
+        const rootField = getGraphQLRootField(req);
+        if (rootField) {
+            endpoint = `${endpoint}:${rootField}`;
+        } else {
+            const operationName = (req.body && req.body.operationName) || (req.query && req.query.operationName);
+            if (operationName) {
+                endpoint = `${endpoint}:${operationName}`;
+            }
+        }
+    }
+    
+    return endpoint;
 };
 
 const metricsMiddleware = () => {
@@ -38,7 +71,7 @@ const metricsMiddleware = () => {
 
             res.on('finish', () => {
                 if (trackedInFlight) {
-                    httpRequestsInFlight.dec({ method, endpoint: startEndpoint, ...defaultLabelValues });
+                    httpRequestsInFlight.dec({ method, ...defaultLabelValues });
                 }
 
                 const endpoint = resolveEndpoint(req);
@@ -62,7 +95,7 @@ const metricsMiddleware = () => {
             });
 
             if (trackedInFlight) {
-                httpRequestsInFlight.inc({ method, endpoint: startEndpoint, ...defaultLabelValues });
+                httpRequestsInFlight.inc({ method, ...defaultLabelValues });
             }
         } catch (error) {
             console.error('Error tracking http metrics:', error);
