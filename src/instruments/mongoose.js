@@ -20,6 +20,8 @@ let isConnected = false;
 *   MongooseHook.initializeMongoosePreHooks(MySchema);
 *   mongooseMetricsPlugin(MySchema);
 *   const MyModel = mongoose.model('MyModel', MySchema);
+* example 2:
+*   mongoose.plugin(mongooseMetricsPlugin);
 */
 const mongooseMetricsPlugin = (schema) => {
     const hooks = [
@@ -64,9 +66,9 @@ const mongooseMetricsPlugin = (schema) => {
                     if (typeof this.pipeline === 'function') {
                         operation = 'aggregate';
                     } else if (typeof this.isNew === 'boolean') {
-                        operation = 'save'; // Document middleware
-                    } else if (this.prototype && this.prototype.$isMongooseDocument) {
-                        operation = 'insertMany'; // Model middleware
+                        operation = 'save';
+                    } else if (this.modelName || typeof this.insertMany === 'function' || (this.prototype && this.prototype.$isMongooseDocument)) {
+                        operation = 'insertMany';
                     } else {
                         operation = 'unknown';
                     }
@@ -128,7 +130,7 @@ const mongooseMetricsPlugin = (schema) => {
                         operation = 'aggregate';
                     } else if (typeof this.isNew === 'boolean') {
                         operation = 'save';
-                    } else if (this.prototype && this.prototype.$isMongooseDocument) {
+                    } else if (this.modelName || typeof this.insertMany === 'function' || (this.prototype && this.prototype.$isMongooseDocument)) {
                         operation = 'insertMany';
                     } else {
                         operation = 'unknown';
@@ -151,7 +153,7 @@ const mongooseMetricsPlugin = (schema) => {
 };
 
 /**
- * this should be imported after all schema initializations and before model creation or use mongooseDefaultMetricsPlugin()
+ * this should be imported before all schema initializations and before model creation or use mongooseDefaultMetricsPlugin()
 */
 const mongooseDefaultMetricsPlugin = () => {
     if (typeof mongoose.plugin === 'function') {

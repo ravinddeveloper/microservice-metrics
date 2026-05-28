@@ -20,6 +20,7 @@ let config = {
     trackOutbound: false,
     disableConnectorMetrics: false,
     disableMicroflowMetrics: false,
+    maxMetricsSizeMb: null,
 };
 
 export default config;

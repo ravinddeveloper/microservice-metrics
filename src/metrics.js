@@ -134,17 +134,15 @@ const vmUptimeSeconds = new Gauge({
     }
 });
 
-// const dependencyRequestDurationSummary = new Summary({
-//     name: 'dependency_request_duration_summary_seconds',
-//     help: 'Dependency call duration percentiles (p50, p90, p95, p99)',
-//     labelNames: ['dependency', 'operation', ...DEFAULT_LABELS],
-//     percentiles: [0.5, 0.9, 0.95, 0.99],
-//     maxAgeSeconds: 600,
-//     ageBuckets: 5,
-//     registers: [registry],
-// });
+const metricsPayloadSizeBytes = new Gauge({
+    name: 'metrics_payload_size_bytes',
+    help: 'Size of the metrics payload in bytes',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
 
 /**
+ * @author Ravi N D
  * @param {Object} options
  * @param {string} [serviceName]
  * @param {string} [environment]
@@ -227,6 +225,7 @@ export {
     appUptimeSeconds,
     dependencyRequestDuration,
     dependencyFailuresTotal,
+    metricsPayloadSizeBytes,
     mongooseQueryDuration,
     mongooseQueryTotal,
     mongooseQueryErrorsTotal,

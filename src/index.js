@@ -6,4 +6,4 @@ export { trackOutboundDependencies } from './instruments/outbound.js';
 export { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
 export { healthHandler } from './endpoints/health.js';
 export { readinessHandler, registerReadinessCheck } from './endpoints/readiness.js';
-export { metricsHandler } from './endpoints/metricsHandler.js';
+export { metricsHandler, resetMetricsHandler } from './endpoints/metricsHandler.js';
