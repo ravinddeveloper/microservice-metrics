@@ -19,10 +19,12 @@ let config = {
     getUpTime: true,
     getVmUpTime: true,
     mongoOperationMetrics: false,
-    trackOutbound: false,
+    trackOutbound: true,
     disableConnectorMetrics: false,
     disableMicroflowMetrics: false,
     maxMetricsSizeMb: null,
+    httpRequestP90Metics: false,
+    mongopooling: true
 };
 
 export default config;

@@ -4,7 +4,8 @@ import {
     mongooseQueryErrorsTotal,
     mongooseAggregationDuration,
     mongooseReconnectsTotal,
-    defaultLabelValues
+    defaultLabelValues,
+    Builder
 } from '../metrics.js';
 import mongoose from 'mongoose';
 let isConnected = false;

@@ -2,6 +2,7 @@ import config from '../config.js';
 import {
     httpRequestsTotal,
     httpRequestDuration,
+    httpRequestDurationSummary,
     httpOverallRequestDuration,
     httpRequestsInFlight,
     httpErrorsTotal,
@@ -87,6 +88,9 @@ const metricsMiddleware = () => {
                 const labels = { method, endpoint, ...defaultLabelValues };
 
                 httpRequestDuration.observe(labels, durationSeconds);
+                if (config.httpRequestP90Metics) {
+                    httpRequestDurationSummary.observe(labels, durationSeconds);
+                }
                 httpOverallRequestDuration.observe({ ...defaultLabelValues }, durationSeconds);
                 httpRequestsTotal.inc({ ...labels, status });
 
