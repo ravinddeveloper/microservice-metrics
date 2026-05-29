@@ -217,8 +217,6 @@ async function initMetrics(options = {}) {
         mongooseDefaultMetricsPlugin();
     }
 
-
-
     defaultLabelValues.service_name = config.serviceName;
     defaultLabelValues.environment = config.environment;
     defaultLabelValues.instance = config.instance;

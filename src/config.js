@@ -23,8 +23,17 @@ let config = {
     disableConnectorMetrics: false,
     disableMicroflowMetrics: false,
     maxMetricsSizeMb: null,
-    httpRequestP90Metics: false,
-    mongopooling: true
+    httpRequestP90Metics: true,
+    mongopooling: true,
+    backPressure: {
+        enabled: false,
+        cpuThreshold: 90,
+        heapThreshold: 85,
+        eventLoopThreshold: 120,
+        sampleIntervalMs: 1500,
+        retryAfterSeconds: 5,
+        exemptPaths: [],
+    },
 };
 
 export default config;
