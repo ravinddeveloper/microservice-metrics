@@ -26,7 +26,7 @@ let config = {
     httpRequestP90Metics: true,
     mongopooling: true,
     backPressure: {
-        enabled: false,
+        enabled: true,
         cpuThreshold: 90,
         heapThreshold: 85,
         eventLoopThreshold: 120,
