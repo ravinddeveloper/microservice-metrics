@@ -32,7 +32,15 @@ const httpRequestDuration = new Histogram({
     name: 'http_request_duration_seconds',
     help: 'HTTP request duration in seconds',
     labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
-    buckets: config.buckets,
+    buckets: config.httpBuckets || [0.5, 1, 2, 5, 10],
+    registers: [registry],
+});
+
+const httpOverallRequestDuration = new Histogram({
+    name: 'http_overall_request_duration_seconds',
+    help: 'Overall HTTP request duration in seconds',
+    labelNames: [...DEFAULT_LABELS],
+    buckets: config.httpBuckets || [0.5, 1, 2, 5, 10],
     registers: [registry],
 });
 
@@ -219,6 +227,7 @@ export {
     defaultLabelValues,
     httpRequestsTotal,
     httpRequestDuration,
+    httpOverallRequestDuration,
     httpRequestsInFlight,
     httpErrorsTotal,
     httpSlowRequestsTotal,
