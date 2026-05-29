@@ -2,6 +2,7 @@ import config from '../config.js';
 import {
     httpRequestsTotal,
     httpRequestDuration,
+    httpOverallRequestDuration,
     httpRequestsInFlight,
     httpErrorsTotal,
     httpSlowRequestsTotal,
@@ -68,20 +69,25 @@ const metricsMiddleware = () => {
             const startTime = process.hrtime.bigint();
             const startEndpoint = req.path || 'unknown';
             const trackedInFlight = shouldTrack(method, startEndpoint);
+            let responseFinished = false;
 
             res.on('finish', () => {
+                responseFinished = true;
                 if (trackedInFlight) {
                     httpRequestsInFlight.dec({ method, ...defaultLabelValues });
                 }
 
                 const endpoint = resolveEndpoint(req);
                 if (!shouldTrack(method, endpoint)) return;
+                
+                if (res.statusCode === 404) return;
 
                 const durationSeconds = Number(process.hrtime.bigint() - startTime) / 1e9;
                 const status = String(res.statusCode);
                 const labels = { method, endpoint, ...defaultLabelValues };
 
                 httpRequestDuration.observe(labels, durationSeconds);
+                httpOverallRequestDuration.observe({ ...defaultLabelValues }, durationSeconds);
                 httpRequestsTotal.inc({ ...labels, status });
 
                 if (durationSeconds >= config.slowThresholdSeconds) {
@@ -91,6 +97,12 @@ const metricsMiddleware = () => {
                 if (res.statusCode >= 400) {
                     const error_type = res.statusCode >= 500 ? '5xx' : '4xx';
                     httpErrorsTotal.inc({ method, endpoint, error_type, ...defaultLabelValues });
+                }
+            });
+
+            res.on('close', () => {
+                if (!responseFinished && trackedInFlight) {
+                    httpRequestsInFlight.dec({ method, ...defaultLabelValues });
                 }
             });
 

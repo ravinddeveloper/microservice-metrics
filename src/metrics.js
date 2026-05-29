@@ -32,7 +32,15 @@ const httpRequestDuration = new Histogram({
     name: 'http_request_duration_seconds',
     help: 'HTTP request duration in seconds',
     labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
-    buckets: config.buckets,
+    buckets: config.httpBuckets || [0.5, 1, 2, 5, 10],
+    registers: [registry],
+});
+
+const httpOverallRequestDuration = new Histogram({
+    name: 'http_overall_request_duration_seconds',
+    help: 'Overall HTTP request duration in seconds',
+    labelNames: [...DEFAULT_LABELS],
+    buckets: config.httpBuckets || [0.5, 1, 2, 5, 10],
     registers: [registry],
 });
 
@@ -134,17 +142,15 @@ const vmUptimeSeconds = new Gauge({
     }
 });
 
-// const dependencyRequestDurationSummary = new Summary({
-//     name: 'dependency_request_duration_summary_seconds',
-//     help: 'Dependency call duration percentiles (p50, p90, p95, p99)',
-//     labelNames: ['dependency', 'operation', ...DEFAULT_LABELS],
-//     percentiles: [0.5, 0.9, 0.95, 0.99],
-//     maxAgeSeconds: 600,
-//     ageBuckets: 5,
-//     registers: [registry],
-// });
+const metricsPayloadSizeBytes = new Gauge({
+    name: 'metrics_payload_size_bytes',
+    help: 'Size of the metrics payload in bytes',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
 
 /**
+ * @author Ravi N D
  * @param {Object} options
  * @param {string} [serviceName]
  * @param {string} [environment]
@@ -221,12 +227,14 @@ export {
     defaultLabelValues,
     httpRequestsTotal,
     httpRequestDuration,
+    httpOverallRequestDuration,
     httpRequestsInFlight,
     httpErrorsTotal,
     httpSlowRequestsTotal,
     appUptimeSeconds,
     dependencyRequestDuration,
     dependencyFailuresTotal,
+    metricsPayloadSizeBytes,
     mongooseQueryDuration,
     mongooseQueryTotal,
     mongooseQueryErrorsTotal,

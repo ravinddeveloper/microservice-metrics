@@ -7,7 +7,9 @@ let config = {
     metricsPort: null,
     includeSystemMetrics: true,
     allowedIPs: '',
-    buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5],
+    buckets: [0.1, 0.5, 1, 2, 5],
+    httpBuckets: [0.5, 1, 2, 5, 10],
+    platformBuckets: [1, 5, 15, 30, 60],
     endpointAllowlist: [],
     endpointDenylist: ["GET:/favicon.ico", "GET:/", "GET:/health", "GET:/ready", "GET:/metrics"],
     slowThresholdSeconds: 3,
@@ -20,6 +22,7 @@ let config = {
     trackOutbound: false,
     disableConnectorMetrics: false,
     disableMicroflowMetrics: false,
+    maxMetricsSizeMb: null,
 };
 
 export default config;
