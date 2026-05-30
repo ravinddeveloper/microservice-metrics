@@ -127,6 +127,7 @@ METRICS_EXCLUDE_ENDPOINTS=GET:/health,GET:/ready,GET:/metrics
 
 ## Prometheus Scrape Config
 
+
 ```yaml
 scrape_configs:
   - job_name: 'core-api'
