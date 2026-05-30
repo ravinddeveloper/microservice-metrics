@@ -70,11 +70,11 @@ const metricsMiddleware = () => {
             const startTime = process.hrtime.bigint();
             const startEndpoint = req.path || 'unknown';
             const trackedInFlight = shouldTrack(method, startEndpoint);
-            let responseFinished = false;
+            let inFlightDecremented = false;
 
             res.on('finish', () => {
-                responseFinished = true;
-                if (trackedInFlight) {
+                if (trackedInFlight && !inFlightDecremented) {
+                    inFlightDecremented = true;
                     httpRequestsInFlight.dec({ method, ...defaultLabelValues });
                 }
 
@@ -105,7 +105,8 @@ const metricsMiddleware = () => {
             });
 
             res.on('close', () => {
-                if (!responseFinished && trackedInFlight) {
+                if (trackedInFlight && !inFlightDecremented) {
+                    inFlightDecremented = true;
                     httpRequestsInFlight.dec({ method, ...defaultLabelValues });
                 }
             });

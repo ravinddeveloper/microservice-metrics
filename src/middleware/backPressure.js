@@ -22,7 +22,6 @@ class BackPressureSampler {
     #lastReason        = null;
     #lastSampleAt      = 0;
     #episodeRejections = 0;
-    #warmedUp          = false;
 
     #lastCpu  = 0;
     #lastHeap = 0;
@@ -141,11 +140,6 @@ class BackPressureSampler {
         const lag  = this.#loopMonitor.mean / 1e6;
 
         this.#loopMonitor.reset();
-
-        if (!this.#warmedUp) {
-            this.#warmedUp = true;
-            return;
-        }
 
         this.#updateState(cpu, heap, lag);
     }
