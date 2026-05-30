@@ -3,6 +3,9 @@ import https from 'https';
 import {
     dependencyRequestDuration,
     dependencyFailuresTotal,
+    httpClientActiveConnections,
+    httpClientRequestDurationSeconds,
+    httpClientErrorsTotal,
     defaultLabelValues,
 } from '../metrics.js';
 
@@ -36,9 +39,21 @@ const wrapRequest = (originalModule) => {
                 const operation = req.method || (urlOrOptions && urlOrOptions.method) || 'GET';
                 const labels = { dependency, operation, ...defaultLabelValues };
 
+                const baseClientLabels = { host: dependency, ...defaultLabelValues };
+                httpClientActiveConnections.inc(baseClientLabels);
+                let isFinished = false;
+
                 req.on('response', (res) => {
                     const durationSeconds = Number(process.hrtime.bigint() - start) / 1e9;
                     dependencyRequestDuration.observe(labels, durationSeconds);
+                    
+                    const clientLabels = { host: dependency, method: operation, status: res.statusCode ? String(res.statusCode) : 'unknown', ...defaultLabelValues };
+                    httpClientRequestDurationSeconds.observe(clientLabels, durationSeconds);
+                    
+                    if (!isFinished) {
+                        isFinished = true;
+                        httpClientActiveConnections.dec(baseClientLabels);
+                    }
                 });
 
                 req.on('error', (err) => {
@@ -48,6 +63,16 @@ const wrapRequest = (originalModule) => {
                         ...labels,
                         error_type: (err && err.code) || 'Error',
                     });
+
+                    httpClientErrorsTotal.inc({
+                        ...baseClientLabels,
+                        error_type: (err && err.code) || 'Error',
+                    });
+
+                    if (!isFinished) {
+                        isFinished = true;
+                        httpClientActiveConnections.dec(baseClientLabels);
+                    }
                 });
 
                 return req;
