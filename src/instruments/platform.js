@@ -1,14 +1,14 @@
 import client from 'prom-client';
 import { registry } from '../metrics.js';
 
-const { Counter, Gauge, Histogram, Summary } = client;
+const { Counter, Gauge, Histogram } = client;
 const DEFAULT_LABELS = ["serviceName", "environment", "instance"];
 
 class ConnectorMetrics {
-    #histogram;
-    #counter;
-    #activeRequests;
-    #config;
+    #histogram    = null;
+    #counter      = null;
+    #activeRequests = null;
+    #config       = null;
     constructor(config = {}) {
         this.#config = config;
         this.#histogram = registry.getSingleMetric("platform_connector_request_duration_seconds") || new Histogram({
@@ -68,11 +68,10 @@ class ConnectorMetrics {
 }
 
 class MicroflowMetrics {
-    #histogram;
-    #counter;
-    #activeRequests;
-    #config;
-    #disabled;
+    #histogram      = null;
+    #counter        = null;
+    #activeRequests = null;
+    #config         = null;
     constructor(config = {}) {
         this.#config = config;
         this.#histogram = registry.getSingleMetric("platform_microflow_request_duration_seconds") || new Histogram({
@@ -131,10 +130,10 @@ class MicroflowMetrics {
 }
 
 class DocumentUploadMetrics {
-    #uploadRequestCount
-    #uploadSizeHistogram
-    #uploadErrorCount
-    #uploadResponseTime
+    #uploadRequestCount  = null;
+    #uploadSizeHistogram = null;
+    #uploadErrorCount    = null;
+    #uploadResponseTime  = null;
    
     constructor() {
         this.#uploadSizeHistogram = registry.getSingleMetric("file_upload_size_bytes") || new Histogram({
@@ -192,10 +191,10 @@ class DocumentUploadMetrics {
 }
 
 class DocumentDownloadMetrics {
-    #downloadSizeHistogram;
-    #downloadResponseTime;
-    #downloadRequestCount;
-    #downloadErrorCount;
+    #downloadSizeHistogram = null;
+    #downloadResponseTime  = null;
+    #downloadRequestCount  = null;
+    #downloadErrorCount    = null;
     constructor() {
         this.#downloadSizeHistogram = registry.getSingleMetric("document_download_size_bytes") || new Histogram({
             name: "document_download_size_bytes",
@@ -250,9 +249,9 @@ class DocumentDownloadMetrics {
 }
 
 class GeneratePdf {
-    #GeneratePdfMetrics;
-    #GeneratePdfError;
-    #GeneratePdfTotalRequests;
+    #GeneratePdfMetrics       = null;
+    #GeneratePdfError         = null;
+    #GeneratePdfTotalRequests = null;
     constructor() {
         this.#GeneratePdfMetrics = registry.getSingleMetric("platform_generate_pdf_request_duration_seconds") || new Histogram({
             name: "platform_generate_pdf_request_duration_seconds",

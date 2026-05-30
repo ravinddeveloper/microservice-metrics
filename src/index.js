@@ -1,5 +1,6 @@
 export { initMetrics, Builder, CustomCounter, CustomGauge, CustomHistogram, CustomSummary, Platform } from './metrics.js';
 export { metricsMiddleware } from './middleware/http.js';
+export { backPressureMiddleware } from './middleware/backPressure.js';
 export { ipAllowlistMiddleware } from './middleware/security.js';
 export { trackDependency } from './instruments/dependency.js';
 export { trackOutboundDependencies } from './instruments/outbound.js';
