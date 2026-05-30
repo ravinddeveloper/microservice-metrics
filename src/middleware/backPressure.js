@@ -6,7 +6,7 @@ import client from 'prom-client';
 
 const { Histogram, Gauge } = client;
 
-const EXEMPT_PATHS = new Set(['/metrics', '/health', '/ready', "/v1/health-check"]);
+const EXEMPT_PATHS = new Set(['/metrics', '/health', '/ready', '/v1/health-check']);
 
 class BackPressureSampler {
     #cpuThreshold;
@@ -20,12 +20,13 @@ class BackPressureSampler {
 
     #overloaded        = false;
     #lastReason        = null;
-    #lastSampleAt      = 0;
     #episodeRejections = 0;
 
     #lastCpu  = 0;
     #lastHeap = 0;
     #lastLag  = 0;
+
+    #timer            = null;
 
     #episodeHistogram = null;
     #cpuGauge         = null;
@@ -75,6 +76,8 @@ class BackPressureSampler {
             help: 'Back pressure active state: 1 = overloaded, 0 = normal',
             registers: [registry],
         });
+        this.#timer = setInterval(() => this.#tick(), this.#sampleIntervalMs);
+        this.#timer.unref?.();
     }
 
     #sampleCpu() {
@@ -93,9 +96,12 @@ class BackPressureSampler {
         return (used_heap_size / heap_size_limit) * 100;
     }
 
+    #tick() {
+        const cpu  = this.#sampleCpu();
+        const heap = this.#sampleHeap();
+        const lag  = this.#loopMonitor.mean / 1e6;
+        this.#loopMonitor.reset();
 
-
-    #updateState(cpu, heap, lag) {
         this.#lastCpu  = cpu;
         this.#lastHeap = heap;
         this.#lastLag  = lag;
@@ -130,20 +136,6 @@ class BackPressureSampler {
         this.#overloadedGauge.set(this.#overloaded ? 1 : 0);
     }
 
-    sample() {
-        const now = Date.now();
-        if (now - this.#lastSampleAt < this.#sampleIntervalMs) return;
-        this.#lastSampleAt = now;
-
-        const cpu  = this.#sampleCpu();
-        const heap = this.#sampleHeap();
-        const lag  = this.#loopMonitor.mean / 1e6;
-
-        this.#loopMonitor.reset();
-
-        this.#updateState(cpu, heap, lag);
-    }
-
     incRejected() {
         this.#episodeRejections++;
     }
@@ -151,7 +143,10 @@ class BackPressureSampler {
     get overloaded()   { return this.#overloaded; }
     get reason()       { return this.#lastReason; }
 
-    stop() { this.#loopMonitor.disable(); }
+    stop() {
+        clearInterval(this.#timer);
+        this.#loopMonitor.disable();
+    }
 }
 
 let _sampler = null;
@@ -174,15 +169,11 @@ const backPressureMiddleware = (cfg = {}) => {
     return (req, res, next) => {
         if (exempt.has(req.path)) return next();
 
-        _sampler.sample();
-
         if (_sampler.overloaded) {
             _sampler.incRejected();
-            const reason     = _sampler.reason ?? 'unknown';
-
             return res.status(429).json({
                 message: 'Server cannot accept more work temporarily',
-                reason,
+                reason: _sampler.reason ?? 'unknown',
             });
         }
 
