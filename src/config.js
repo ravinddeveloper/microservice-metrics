@@ -23,7 +23,7 @@ let config = {
     trackNetworkMetrics: true,
     disableConnectorMetrics: false,
     disableMicroflowMetrics: false,
-    maxMetricsSizeMb: null,
+    maxMetricsSizeMb: 20,
     httpRequestP90Metics: true,
     mongopooling: true,
     backPressure: {
