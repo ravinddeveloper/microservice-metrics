@@ -2,8 +2,9 @@ import client from 'prom-client';
 import config from './config.js';
 import { trackOutboundDependencies } from './instruments/outbound.js';
 import { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
-import { ConnectorMetrics, MicroflowMetrics } from './instruments/platform.js';
+import { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUploadMetrics, GeneratePdf } from './instruments/platform.js';
 import os from 'os';
+import v8 from 'v8';
 
 const { Registry, Counter, Histogram, Gauge, Summary, collectDefaultMetrics, Pushgateway } = client;
 
@@ -19,7 +20,7 @@ const defaultLabelValues = {
 
 registry.setDefaultLabels(defaultLabelValues);
 
-const Platform = { ConnectorMetrics: new ConnectorMetrics(config), MicroflowMetrics: new MicroflowMetrics(config) };
+const Platform = { ConnectorMetrics: new ConnectorMetrics(config), MicroflowMetrics: new MicroflowMetrics(config), DocumentDownloadMetrics: new DocumentDownloadMetrics(config), DocumentUploadMetrics : new DocumentUploadMetrics(config), GeneratePdf: new GeneratePdf(config)};
 
 const httpRequestsTotal = new Counter({
     name: 'http_requests_total',
@@ -32,7 +33,25 @@ const httpRequestDuration = new Histogram({
     name: 'http_request_duration_seconds',
     help: 'HTTP request duration in seconds',
     labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
-    buckets: config.buckets,
+    buckets: config.httpBuckets || [0.5, 1, 2, 5, 10],
+    registers: [registry],
+});
+
+const httpRequestDurationSummary = new Summary({
+    name: 'http_request_duration_summary_seconds',
+    help: 'HTTP request duration summary (percentiles) in seconds',
+    labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+    maxAgeSeconds: 600,
+    ageBuckets: 5,
+    registers: [registry],
+});
+
+const httpOverallRequestDuration = new Histogram({
+    name: 'http_overall_request_duration_seconds',
+    help: 'Overall HTTP request duration in seconds',
+    labelNames: [...DEFAULT_LABELS],
+    buckets: config.httpBuckets || [0.5, 1, 2, 5, 10],
     registers: [registry],
 });
 
@@ -134,17 +153,26 @@ const vmUptimeSeconds = new Gauge({
     }
 });
 
-// const dependencyRequestDurationSummary = new Summary({
-//     name: 'dependency_request_duration_summary_seconds',
-//     help: 'Dependency call duration percentiles (p50, p90, p95, p99)',
-//     labelNames: ['dependency', 'operation', ...DEFAULT_LABELS],
-//     percentiles: [0.5, 0.9, 0.95, 0.99],
-//     maxAgeSeconds: 600,
-//     ageBuckets: 5,
-//     registers: [registry],
-// });
+const nodejsHeapSizeLimitBytes = new Gauge({
+    name: 'nodejs_heap_size_limit_bytes',
+    help: 'Node.js heap size limit in bytes',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+    collect() {
+        this.set(defaultLabelValues, v8.getHeapStatistics().heap_size_limit);
+    }
+});
+
+
+const metricsPayloadSizeBytes = new Gauge({
+    name: 'metrics_payload_size_bytes',
+    help: 'Size of the metrics payload in bytes',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
 
 /**
+ * @author Ravi N D
  * @param {Object} options
  * @param {string} [serviceName]
  * @param {string} [environment]
@@ -163,7 +191,7 @@ const vmUptimeSeconds = new Gauge({
  * @param {boolean} [getUpTime=true]
  * @param {boolean} [getVmUpTime=false]
  */
-function initMetrics(options = {}) {
+async function initMetrics(options = {}) {
     Object.assign(config, {
         ...(options || {}),
         endpointAllowlist: [...config.endpointAllowlist, ...(options?.endpointAllowlist || [])],
@@ -188,8 +216,6 @@ function initMetrics(options = {}) {
     } else if (config.mongoOperationMetrics) {
         mongooseDefaultMetricsPlugin();
     }
-
-
 
     defaultLabelValues.service_name = config.serviceName;
     defaultLabelValues.environment = config.environment;
@@ -221,12 +247,15 @@ export {
     defaultLabelValues,
     httpRequestsTotal,
     httpRequestDuration,
+    httpRequestDurationSummary,
+    httpOverallRequestDuration,
     httpRequestsInFlight,
     httpErrorsTotal,
     httpSlowRequestsTotal,
     appUptimeSeconds,
     dependencyRequestDuration,
     dependencyFailuresTotal,
+    metricsPayloadSizeBytes,
     mongooseQueryDuration,
     mongooseQueryTotal,
     mongooseQueryErrorsTotal,
@@ -234,7 +263,8 @@ export {
     mongooseReconnectsTotal,
     mongooseMetricsPlugin,
     initMetrics,
-    Platform
+    nodejsHeapSizeLimitBytes,
+    Platform,
 };
 
 export const Builder = {
