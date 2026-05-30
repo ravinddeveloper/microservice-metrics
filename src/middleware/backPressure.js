@@ -13,7 +13,6 @@ class BackPressureSampler {
     #heapThreshold;
     #eventLoopThreshold;
     #sampleIntervalMs;
-    #maxRetryAfterSeconds;
 
     #loopMonitor    = null;
     #cpuUsagePrev   = null;
@@ -40,7 +39,6 @@ class BackPressureSampler {
         this.#heapThreshold       = cfg.heapThreshold      ?? 80;
         this.#eventLoopThreshold  = cfg.eventLoopThreshold ?? 100;
         this.#sampleIntervalMs    = cfg.sampleIntervalMs   ?? 1000;
-        this.#maxRetryAfterSeconds = cfg.retryAfterSeconds ?? 5;
 
         this.#cpuUsagePrev = process.cpuUsage();
         this.#cpuTimePrev  = process.hrtime.bigint();
@@ -96,19 +94,7 @@ class BackPressureSampler {
         return (used_heap_size / heap_size_limit) * 100;
     }
 
-    #computeRetryAfter() {
-        if (!this.#lastReason) return 1;
-        let severity = 0;
-        if (this.#lastReason === 'cpu') {
-            severity = (this.#lastCpu - this.#cpuThreshold) / (100 - this.#cpuThreshold);
-        } else if (this.#lastReason === 'heap') {
-            severity = (this.#lastHeap - this.#heapThreshold) / (100 - this.#heapThreshold);
-        } else if (this.#lastReason === 'event_loop') {
-            severity = (this.#lastLag - this.#eventLoopThreshold) / this.#eventLoopThreshold;
-        }
-        severity = Math.min(1, Math.max(0, severity));
-        return Math.ceil(1 + severity * (this.#maxRetryAfterSeconds - 1));
-    }
+
 
     #updateState(cpu, heap, lag) {
         this.#lastCpu  = cpu;
@@ -170,7 +156,6 @@ class BackPressureSampler {
 
     get overloaded()   { return this.#overloaded; }
     get reason()       { return this.#lastReason; }
-    get retryAfter()   { return this.#computeRetryAfter(); }
 
     stop() { this.#loopMonitor.disable(); }
 }
@@ -200,13 +185,10 @@ const backPressureMiddleware = (cfg = {}) => {
         if (_sampler.overloaded) {
             _sampler.incRejected();
             const reason     = _sampler.reason ?? 'unknown';
-            const retryAfter = _sampler.retryAfter;
 
-            res.set('Retry-After', String(retryAfter));
             return res.status(429).json({
                 message: 'Server cannot accept more work temporarily',
                 reason,
-                retryAfter,
             });
         }
 
