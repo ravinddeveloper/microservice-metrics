@@ -1,4 +1,5 @@
 import v8 from 'v8';
+import os from 'os';
 import { monitorEventLoopDelay } from 'perf_hooks';
 import { registry } from '../metrics.js';
 import config from '../config.js';
@@ -17,14 +18,16 @@ class BackPressureSampler {
     #loopMonitor    = null;
     #cpuUsagePrev   = null;
     #cpuTimePrev    = null;
+    #numCpus        = 1;
 
     #overloaded        = false;
     #lastReason        = null;
     #episodeRejections = 0;
 
-    #lastCpu  = 0;
-    #lastHeap = 0;
-    #lastLag  = 0;
+    #smoothedCpu     = 0;
+    #cpuInitialized  = false;
+    #cpuEmaAlpha     = 0.5;
+    #highCpuCount    = 0;
 
     #timer            = null;
 
@@ -42,6 +45,7 @@ class BackPressureSampler {
 
         this.#cpuUsagePrev = process.cpuUsage();
         this.#cpuTimePrev  = process.hrtime.bigint();
+        this.#numCpus      = os.cpus().length || 1;
 
         this.#loopMonitor = monitorEventLoopDelay({ resolution: 20 });
         this.#loopMonitor.enable();
@@ -87,8 +91,15 @@ class BackPressureSampler {
         const cpuUs     = (usage.user - this.#cpuUsagePrev.user) + (usage.system - this.#cpuUsagePrev.system);
         this.#cpuUsagePrev = usage;
         this.#cpuTimePrev  = now;
-        if (elapsedUs <= 0) return 0;
-        return Math.min(100, (cpuUs / elapsedUs) * 100);
+        if (elapsedUs <= 0) return this.#smoothedCpu;
+        const rawPercent = Math.min(100, (cpuUs / elapsedUs / this.#numCpus) * 100);
+        if (!this.#cpuInitialized) {
+            this.#smoothedCpu    = rawPercent;
+            this.#cpuInitialized = true;
+        } else {
+            this.#smoothedCpu += this.#cpuEmaAlpha * (rawPercent - this.#smoothedCpu);
+        }
+        return this.#smoothedCpu;
     }
 
     #sampleHeap() {
@@ -102,10 +113,6 @@ class BackPressureSampler {
         const lag  = this.#loopMonitor.mean / 1e6;
         this.#loopMonitor.reset();
 
-        this.#lastCpu  = cpu;
-        this.#lastHeap = heap;
-        this.#lastLag  = lag;
-
         this.#cpuGauge.set(parseFloat(cpu.toFixed(2)));
         this.#heapGauge.set(parseFloat(heap.toFixed(2)));
         this.#eventLoopGauge.set(parseFloat(lag.toFixed(2)));
@@ -113,6 +120,12 @@ class BackPressureSampler {
         const wasOverloaded = this.#overloaded;
 
         if (cpu > this.#cpuThreshold) {
+            this.#highCpuCount++;
+        } else {
+            this.#highCpuCount = 0;
+        }
+
+        if (this.#highCpuCount >= 2) {
             this.#overloaded = true;
             this.#lastReason = 'cpu';
         } else if (heap > this.#heapThreshold) {

@@ -140,6 +140,7 @@ class DocumentUploadMetrics {
             name: "file_upload_size_bytes",
             help: "Size of the file upload in bytes",
             labelNames: [...DEFAULT_LABELS],
+            buckets: [1, 10, 25, 50, 100],
             registers: [registry],
         });
 
@@ -147,6 +148,7 @@ class DocumentUploadMetrics {
             name: "file_upload_duration_seconds",
             help: "Duration of the file upload in seconds",
             labelNames: [...DEFAULT_LABELS],
+            buckets: [0.5, 1, 5, 10, 15],
             registers: [registry],
         });
 
@@ -200,6 +202,7 @@ class DocumentDownloadMetrics {
             name: "document_download_size_bytes",
             help: "Size of the document download in bytes",
             labelNames: [...DEFAULT_LABELS],
+            buckets: [1, 10, 25, 50, 100],
             registers: [registry],
         });
 
@@ -207,6 +210,7 @@ class DocumentDownloadMetrics {
             name: "document_download_response_time_seconds",
             help: "Response time of the document download in seconds",
             labelNames: [...DEFAULT_LABELS],
+            buckets: [0.5, 1, 5, 10, 15],
             registers: [registry],
         });
 
@@ -252,11 +256,13 @@ class GeneratePdf {
     #GeneratePdfMetrics       = null;
     #GeneratePdfError         = null;
     #GeneratePdfTotalRequests = null;
+    #GeneratePdfSize          = null;
     constructor() {
         this.#GeneratePdfMetrics = registry.getSingleMetric("platform_generate_pdf_request_duration_seconds") || new Histogram({
             name: "platform_generate_pdf_request_duration_seconds",
             help: "Duration of generate pdf requests in seconds",
             labelNames: [...DEFAULT_LABELS],
+            buckets: [1, 5, 15, 30, 60],
             registers: [registry],
         })
 
@@ -270,6 +276,14 @@ class GeneratePdf {
             name: "platform_generate_pdf_total_requests",
             help: "Number of generate pdf requests",
             labelNames: [...DEFAULT_LABELS],
+            registers: [registry],
+        })
+
+        this.#GeneratePdfSize = registry.getSingleMetric("platform_generate_pdf_size_bytes") || new Histogram({
+            name: "platform_generate_pdf_size_bytes",
+            help: "Size of the generate pdf in bytes",
+            labelNames: [...DEFAULT_LABELS],
+            buckets: [1, 10, 25, 50, 100],
             registers: [registry],
         })
     }
@@ -287,6 +301,11 @@ class GeneratePdf {
     error() {
         if (this.#GeneratePdfError) {
             this.#GeneratePdfError.inc();
+        }
+    }
+    size(size) {
+        if (this.#GeneratePdfSize) {
+            this.#GeneratePdfSize.observe(size);
         }
     }
 

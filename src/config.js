@@ -28,7 +28,7 @@ let config = {
     mongopooling: true,
     backPressure: {
         enabled: true,
-        cpuThreshold: 125,
+        cpuThreshold: 100,
         heapThreshold: 85,
         eventLoopThreshold: 500,
         sampleIntervalMs: 1000,
