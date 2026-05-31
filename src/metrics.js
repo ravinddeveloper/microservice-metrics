@@ -171,6 +171,73 @@ const metricsPayloadSizeBytes = new Gauge({
     registers: [registry],
 });
 
+const httpActiveConnections = new Gauge({
+    name: 'http_active_connections',
+    help: 'Number of active HTTP connections',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const httpConnectionDurationSeconds = new Histogram({
+    name: 'http_connection_duration_seconds',
+    help: 'HTTP connection duration in seconds',
+    labelNames: [...DEFAULT_LABELS],
+    buckets: config.httpBuckets || [0.1, 0.5, 1, 5, 10, 30],
+    registers: [registry],
+});
+
+const httpConnectionErrorsTotal = new Counter({
+    name: 'http_connection_errors_total',
+    help: 'Total number of HTTP connection errors',
+    labelNames: ['error_type', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+
+const httpClientActiveConnections = new Gauge({
+    name: 'http_client_active_connections',
+    help: 'Number of active HTTP client connections',
+    labelNames: ['host', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const httpClientRequestDurationSeconds = new Histogram({
+    name: 'http_client_request_duration_seconds',
+    help: 'HTTP client request duration in seconds',
+    labelNames: ['host', 'method', 'status', ...DEFAULT_LABELS],
+    buckets: config.httpBuckets || [0.1, 0.5, 1, 2, 5, 10],
+    registers: [registry],
+});
+
+const httpClientErrorsTotal = new Counter({
+    name: 'http_client_errors_total',
+    help: 'Total number of HTTP client errors',
+    labelNames: ['host', 'error_type', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+
+const networkBytesReceivedTotal = new Counter({
+    name: 'network_bytes_received_total',
+    help: 'Total network bytes received',
+    labelNames: ['interface', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const networkBytesSentTotal = new Counter({
+    name: 'network_bytes_sent_total',
+    help: 'Total network bytes sent',
+    labelNames: ['interface', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const networkIoErrorsTotal = new Counter({
+    name: 'network_io_errors_total',
+    help: 'Total network I/O errors',
+    labelNames: ['type', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
 /**
  * @author Ravi N D
  * @param {Object} options
@@ -265,6 +332,15 @@ export {
     initMetrics,
     nodejsHeapSizeLimitBytes,
     Platform,
+    httpActiveConnections,
+    httpConnectionDurationSeconds,
+    httpConnectionErrorsTotal,
+    httpClientActiveConnections,
+    httpClientRequestDurationSeconds,
+    httpClientErrorsTotal,
+    networkBytesReceivedTotal,
+    networkBytesSentTotal,
+    networkIoErrorsTotal,
 };
 
 export const Builder = {

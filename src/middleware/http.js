@@ -7,6 +7,11 @@ import {
     httpRequestsInFlight,
     httpErrorsTotal,
     httpSlowRequestsTotal,
+    httpActiveConnections,
+    httpConnectionDurationSeconds,
+    httpConnectionErrorsTotal,
+    networkBytesReceivedTotal,
+    networkBytesSentTotal,
     defaultLabelValues,
 } from '../metrics.js';
 import { parse, getOperationAST } from "graphql";
@@ -71,6 +76,28 @@ const metricsMiddleware = () => {
             const startEndpoint = req.path || 'unknown';
             const trackedInFlight = shouldTrack(method, startEndpoint);
             let inFlightDecremented = false;
+
+            const socket = req.socket;
+            if (config.trackNetworkMetrics && socket && !socket._metricsTracked) {
+                socket._metricsTracked = true;
+                const socketStartTime = process.hrtime.bigint();
+                
+                httpActiveConnections.inc(defaultLabelValues);
+                
+                socket.on('close', (hadError) => {
+                    httpActiveConnections.dec(defaultLabelValues);
+                    
+                    const connDuration = Number(process.hrtime.bigint() - socketStartTime) / 1e9;
+                    httpConnectionDurationSeconds.observe(defaultLabelValues, connDuration);
+                    
+                    if (hadError) {
+                        httpConnectionErrorsTotal.inc({ error_type: 'socket_error', ...defaultLabelValues });
+                    }
+                    
+                    networkBytesReceivedTotal.inc({ interface: 'unknown', ...defaultLabelValues }, socket.bytesRead || 0);
+                    networkBytesSentTotal.inc({ interface: 'unknown', ...defaultLabelValues }, socket.bytesWritten || 0);
+                });
+            }
 
             res.on('finish', () => {
                 if (trackedInFlight && !inFlightDecremented) {
