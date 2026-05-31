@@ -1,6 +1,6 @@
 {
   "name": "@latitudenpm/metrics",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Reusable observability package — Prometheus metrics, health/readiness endpoints, HTTP middleware",
   "type": "module",
   "main": "dist/index.js",
