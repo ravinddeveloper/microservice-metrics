@@ -5,6 +5,7 @@ import { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instrumen
 import { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUploadMetrics, GeneratePdf } from './instruments/platform.js';
 import os from 'os';
 import v8 from 'v8';
+import cron from 'node-cron';
 
 const { Registry, Counter, Histogram, Gauge, Summary, collectDefaultMetrics, Pushgateway } = client;
 
@@ -121,6 +122,42 @@ const mongooseReconnectsTotal = new Counter({
     labelNames: [...DEFAULT_LABELS],
     registers: [registry],
 });
+
+const mongooseSlowQueriesGauge = new Gauge({
+    name: 'mongoose_slow_query_duration_seconds',
+    help: 'Top 10 slowest Mongoose queries (duration in seconds)',
+    labelNames: ['rank', 'collection', 'operation', 'query', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const SLOW_QUERY_LIMIT = parseInt(process.env.SLOW_QUERY_LIMIT) || 10;
+const slowQueryTracker = {
+    _heap: [],
+    observe(collection, operation, durationSeconds, query) {
+        const minDuration = this._heap.length >= SLOW_QUERY_LIMIT
+            ? this._heap[0].duration
+            : -Infinity;
+
+        if (durationSeconds > minDuration || this._heap.length < SLOW_QUERY_LIMIT) {
+            if (this._heap.length >= SLOW_QUERY_LIMIT) {
+                this._heap.shift();
+            }
+            this._heap.push({ collection, operation, duration: durationSeconds, query });
+            this._heap.sort((a, b) => a.duration - b.duration);
+            this._flush();
+        }
+    },
+    _flush() {
+        mongooseSlowQueriesGauge.reset();
+        const sorted = [...this._heap].sort((a, b) => b.duration - a.duration);
+        sorted.forEach((entry, idx) => {
+            mongooseSlowQueriesGauge.set(
+                { rank: idx + 1, collection: entry.collection, operation: entry.operation, query: entry.query, ...defaultLabelValues },
+                entry.duration
+            );
+        });
+    },
+};
 
 const httpSlowRequestsTotal = new Counter({
     name: 'http_slow_requests_total',
@@ -257,6 +294,9 @@ const networkIoErrorsTotal = new Counter({
  * @param {boolean} [includeSystemMetrics=true]
  * @param {boolean} [getUpTime=true]
  * @param {boolean} [getVmUpTime=false]
+ * @param {string[]|object[]} [metricsToReset=[]]
+ * @param {string[]|object[]} [metricsNotToReset=[]]
+ * @param {string} [resetSchedule='0 0 * * *']
  */
 async function initMetrics(options = {}) {
     Object.assign(config, {
@@ -280,7 +320,7 @@ async function initMetrics(options = {}) {
                 }
             });
         }
-    } else if (config.mongoOperationMetrics) {
+    } else if (config.mongo.mongoOperationMetrics) {
         mongooseDefaultMetricsPlugin();
     }
 
@@ -307,6 +347,33 @@ async function initMetrics(options = {}) {
         }, config.resetIntervalSeconds * 1000);
         if (clearTimer.unref) clearTimer.unref();
     }
+
+    const hasToReset = config.metricsToReset && config.metricsToReset.length > 0;
+    const hasNotToReset = config.metricsNotToReset && config.metricsNotToReset.length > 0;
+
+    if ((hasToReset || hasNotToReset) && config.resetSchedule) {
+        cron.schedule(config.resetSchedule, () => {
+            if (hasToReset) {
+                config.metricsToReset.forEach(metricOrName => {
+                    let metric = metricOrName;
+                    if (typeof metricOrName === 'string') {
+                        metric = registry.getSingleMetric(metricOrName);
+                    }
+                    if (metric && typeof metric.reset === 'function') {
+                        metric.reset();
+                    }
+                });
+            } else if (hasNotToReset) {
+                const excludeNames = config.metricsNotToReset.map(m => typeof m === 'string' ? m : m.name);
+                registry.getMetricsAsArray().forEach(metric => {
+                    if (!excludeNames.includes(metric.name) && typeof metric.reset === 'function') {
+                        metric.reset();
+                    }
+                });
+            }
+        });
+
+    }
 }
 
 export {
@@ -332,6 +399,8 @@ export {
     initMetrics,
     nodejsHeapSizeLimitBytes,
     Platform,
+    mongooseSlowQueriesGauge,
+    slowQueryTracker,
     httpActiveConnections,
     httpConnectionDurationSeconds,
     httpConnectionErrorsTotal,

@@ -5,9 +5,11 @@ import {
     mongooseAggregationDuration,
     mongooseReconnectsTotal,
     defaultLabelValues,
-    Builder
+    Builder,
+    slowQueryTracker,
 } from '../metrics.js';
 import mongoose from 'mongoose';
+import config from '../config.js';
 let isConnected = false;
 
 
@@ -89,6 +91,28 @@ const mongooseMetricsPlugin = (schema) => {
                     },
                     durationSeconds
                 );
+
+                if (config.mongo.topQuery) {
+                    let queryStr = '';
+                    try {
+                        if (typeof this.getFilter === 'function') {
+                            queryStr = JSON.stringify(this.getFilter());
+                        } else if (this._conditions) {
+                            queryStr = JSON.stringify(this._conditions);
+                        } else if (typeof this.pipeline === 'function') {
+                            queryStr = JSON.stringify(this.pipeline());
+                        } else if (this._pipeline) {
+                            queryStr = JSON.stringify(this._pipeline);
+                        } else if (this._doc) {
+                            queryStr = JSON.stringify(this._doc);
+                        }
+                    } catch (_) {
+                        queryStr = '[unserializable]';
+                    }
+                    if (queryStr.length > 300) queryStr = queryStr.slice(0, 297) + '...';
+
+                    slowQueryTracker.observe(collectionName, operation, durationSeconds, queryStr);
+                }
 
                 if (operation === 'aggregate') {
                     mongooseAggregationDuration.observe(
