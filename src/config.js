@@ -34,6 +34,9 @@ let config = {
         sampleIntervalMs: 1000,
         exemptPaths: [],
     },
+    metricsToReset: [],
+    metricsNotToReset: ["app_uptime_seconds", "vm_uptime_seconds"],
+    resetSchedule: '0 0 * * *',
 };
 
 export default config;

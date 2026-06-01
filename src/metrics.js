@@ -5,6 +5,7 @@ import { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instrumen
 import { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUploadMetrics, GeneratePdf } from './instruments/platform.js';
 import os from 'os';
 import v8 from 'v8';
+import cron from 'node-cron';
 
 const { Registry, Counter, Histogram, Gauge, Summary, collectDefaultMetrics, Pushgateway } = client;
 
@@ -257,6 +258,9 @@ const networkIoErrorsTotal = new Counter({
  * @param {boolean} [includeSystemMetrics=true]
  * @param {boolean} [getUpTime=true]
  * @param {boolean} [getVmUpTime=false]
+ * @param {string[]|object[]} [metricsToReset=[]]
+ * @param {string[]|object[]} [metricsNotToReset=[]]
+ * @param {string} [resetSchedule='0 0 * * *']
  */
 async function initMetrics(options = {}) {
     Object.assign(config, {
@@ -306,6 +310,33 @@ async function initMetrics(options = {}) {
             registry.resetMetrics();
         }, config.resetIntervalSeconds * 1000);
         if (clearTimer.unref) clearTimer.unref();
+    }
+
+    const hasToReset = config.metricsToReset && config.metricsToReset.length > 0;
+    const hasNotToReset = config.metricsNotToReset && config.metricsNotToReset.length > 0;
+
+    if ((hasToReset || hasNotToReset) && config.resetSchedule) {
+        cron.schedule(config.resetSchedule, () => {
+            if (hasToReset) {
+                config.metricsToReset.forEach(metricOrName => {
+                    let metric = metricOrName;
+                    if (typeof metricOrName === 'string') {
+                        metric = registry.getSingleMetric(metricOrName);
+                    }
+                    if (metric && typeof metric.reset === 'function') {
+                        metric.reset();
+                    }
+                });
+            } else if (hasNotToReset) {
+                const excludeNames = config.metricsNotToReset.map(m => typeof m === 'string' ? m : m.name);
+                registry.getMetricsAsArray().forEach(metric => {
+                    if (!excludeNames.includes(metric.name) && typeof metric.reset === 'function') {
+                        metric.reset();
+                    }
+                });
+            }
+        });
+
     }
 }
 
