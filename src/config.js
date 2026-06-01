@@ -18,14 +18,16 @@ let config = {
     pushgatewayUrl: null,
     getUpTime: true,
     getVmUpTime: true,
-    mongoOperationMetrics: false,
+    mongo:{
+        topQuery:true,
+        mongoOperationMetrics: false,
+    },
     trackOutbound: true,
     trackNetworkMetrics: true,
     disableConnectorMetrics: false,
     disableMicroflowMetrics: false,
     maxMetricsSizeMb: 20,
     httpRequestP90Metics: true,
-    mongopooling: true,
     backPressure: {
         enabled: true,
         cpuThreshold: 100,
@@ -37,6 +39,11 @@ let config = {
     metricsToReset: [],
     metricsNotToReset: ["app_uptime_seconds", "vm_uptime_seconds"],
     resetSchedule: '0 0 * * *',
+    fileTrack:{
+        fileThresholdMb: 5,
+        minDurationMs: 1000,
+        enabled: true,
+    }
 };
 
 export default config;

@@ -123,6 +123,42 @@ const mongooseReconnectsTotal = new Counter({
     registers: [registry],
 });
 
+const mongooseSlowQueriesGauge = new Gauge({
+    name: 'mongoose_slow_query_duration_seconds',
+    help: 'Top 10 slowest Mongoose queries (duration in seconds)',
+    labelNames: ['rank', 'collection', 'operation', 'query', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const SLOW_QUERY_LIMIT = parseInt(process.env.SLOW_QUERY_LIMIT) || 10;
+const slowQueryTracker = {
+    _heap: [],
+    observe(collection, operation, durationSeconds, query) {
+        const minDuration = this._heap.length >= SLOW_QUERY_LIMIT
+            ? this._heap[0].duration
+            : -Infinity;
+
+        if (durationSeconds > minDuration || this._heap.length < SLOW_QUERY_LIMIT) {
+            if (this._heap.length >= SLOW_QUERY_LIMIT) {
+                this._heap.shift();
+            }
+            this._heap.push({ collection, operation, duration: durationSeconds, query });
+            this._heap.sort((a, b) => a.duration - b.duration);
+            this._flush();
+        }
+    },
+    _flush() {
+        mongooseSlowQueriesGauge.reset();
+        const sorted = [...this._heap].sort((a, b) => b.duration - a.duration);
+        sorted.forEach((entry, idx) => {
+            mongooseSlowQueriesGauge.set(
+                { rank: idx + 1, collection: entry.collection, operation: entry.operation, query: entry.query, ...defaultLabelValues },
+                entry.duration
+            );
+        });
+    },
+};
+
 const httpSlowRequestsTotal = new Counter({
     name: 'http_slow_requests_total',
     help: 'Total HTTP requests exceeding the slow threshold',
@@ -284,7 +320,7 @@ async function initMetrics(options = {}) {
                 }
             });
         }
-    } else if (config.mongoOperationMetrics) {
+    } else if (config.mongo.mongoOperationMetrics) {
         mongooseDefaultMetricsPlugin();
     }
 
@@ -363,6 +399,8 @@ export {
     initMetrics,
     nodejsHeapSizeLimitBytes,
     Platform,
+    mongooseSlowQueriesGauge,
+    slowQueryTracker,
     httpActiveConnections,
     httpConnectionDurationSeconds,
     httpConnectionErrorsTotal,

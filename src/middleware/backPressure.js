@@ -125,15 +125,9 @@ class BackPressureSampler {
             this.#highCpuCount = 0;
         }
 
-        if (this.#highCpuCount >= 2) {
+        if (this.#highCpuCount >= 2 && heap > this.#heapThreshold) {
             this.#overloaded = true;
-            this.#lastReason = 'cpu';
-        } else if (heap > this.#heapThreshold) {
-            this.#overloaded = true;
-            this.#lastReason = 'heap';
-        } else if (lag > this.#eventLoopThreshold) {
-            this.#overloaded = true;
-            this.#lastReason = 'event_loop';
+            this.#lastReason = 'cpu and heap';
         } else {
             this.#overloaded = false;
             this.#lastReason = null;
