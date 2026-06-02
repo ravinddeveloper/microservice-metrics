@@ -44,7 +44,15 @@ let config = {
         fileThresholdMb: 5,
         minDurationMs: 1000,
         enabled: true,
-    }
+    },
+    rabbitmq: {
+        enabled: false,
+        amqplib: null,
+    },
+    redis: {
+        enabled: false,
+        client: null,
+    },
 };
 
 export default config;
