@@ -32,7 +32,7 @@ let config = {
     backPressure: {
         enabled: true,
         cpuThreshold: 100,
-        heapThreshold: 85,
+        heapThreshold: 80,
         eventLoopThreshold: 500,
         sampleIntervalMs: 1000,
         exemptPaths: [],
