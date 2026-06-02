@@ -6,10 +6,11 @@ const { Counter, Gauge, Histogram } = client;
 const DEFAULT_LABELS = ["service_name", "environment", "instance"];
 const TOP10_LIMIT = 10;
 
-function makeTop10Tracker(gauge, keyField) {
+function makeTop10Tracker(gauge, keyField, threshold = 0) {
     return {
         _heap: [],
         observe(value, type) {
+            if (value < threshold) return;
             const min = this._heap.length >= TOP10_LIMIT
                 ? this._heap[0][keyField]
                 : -Infinity;
@@ -192,8 +193,11 @@ class DocumentUploadMetrics {
             registers: [registry],
         });
 
-        this.#durationTracker = makeTop10Tracker(this.#top10DurationGauge, 'duration');
-        this.#sizeTracker = makeTop10Tracker(this.#top10SizeGauge, 'size');
+        const durationThreshold = config?.fileTrack?.minDurationMs ? config.fileTrack.minDurationMs / 1000 : 0;
+        const sizeThreshold = config?.fileTrack?.fileThresholdMb ? config.fileTrack.fileThresholdMb * 1024 * 1024 : 0;
+
+        this.#durationTracker = makeTop10Tracker(this.#top10DurationGauge, 'duration', durationThreshold);
+        this.#sizeTracker = makeTop10Tracker(this.#top10SizeGauge, 'size', sizeThreshold);
     }
 
     inc() {
@@ -277,8 +281,11 @@ class DocumentDownloadMetrics {
             registers: [registry],
         });
 
-        this.#durationTracker = makeTop10Tracker(this.#top10DurationGauge, 'duration');
-        this.#sizeTracker = makeTop10Tracker(this.#top10SizeGauge, 'size');
+        const durationThreshold = config?.fileTrack?.minDurationMs ? config.fileTrack.minDurationMs / 1000 : 0;
+        const sizeThreshold = config?.fileTrack?.fileThresholdMb ? config.fileTrack.fileThresholdMb * 1024 * 1024 : 0;
+
+        this.#durationTracker = makeTop10Tracker(this.#top10DurationGauge, 'duration', durationThreshold);
+        this.#sizeTracker = makeTop10Tracker(this.#top10SizeGauge, 'size', sizeThreshold);
     }
 
     inc() {
@@ -362,8 +369,11 @@ class GeneratePdf {
             registers: [registry],
         });
 
-        this.#durationTracker = makeTop10Tracker(this.#top10DurationGauge, 'duration');
-        this.#sizeTracker = makeTop10Tracker(this.#top10SizeGauge, 'size');
+        const durationThreshold = config?.fileTrack?.minDurationMs ? config.fileTrack.minDurationMs / 1000 : 0;
+        const sizeThreshold = config?.fileTrack?.fileThresholdMb ? config.fileTrack.fileThresholdMb * 1024 * 1024 : 0;
+
+        this.#durationTracker = makeTop10Tracker(this.#top10DurationGauge, 'duration', durationThreshold);
+        this.#sizeTracker = makeTop10Tracker(this.#top10SizeGauge, 'size', sizeThreshold);
     }
 
     inc() {

@@ -93,25 +93,27 @@ const mongooseMetricsPlugin = (schema) => {
                 );
 
                 if (config.mongo.topQuery) {
-                    let queryStr = '';
-                    try {
-                        if (typeof this.getFilter === 'function') {
-                            queryStr = JSON.stringify(this.getFilter());
-                        } else if (this._conditions) {
-                            queryStr = JSON.stringify(this._conditions);
-                        } else if (typeof this.pipeline === 'function') {
-                            queryStr = JSON.stringify(this.pipeline());
-                        } else if (this._pipeline) {
-                            queryStr = JSON.stringify(this._pipeline);
-                        } else if (this._doc) {
-                            queryStr = JSON.stringify(this._doc);
+                    if (durationSeconds > config.mongo.slowThresholdSeconds) {
+                        let queryStr = '';
+                        try {
+                            if (typeof this.getFilter === 'function') {
+                                queryStr = JSON.stringify(this.getFilter());
+                            } else if (this._conditions) {
+                                queryStr = JSON.stringify(this._conditions);
+                            } else if (typeof this.pipeline === 'function') {
+                                queryStr = JSON.stringify(this.pipeline());
+                            } else if (this._pipeline) {
+                                queryStr = JSON.stringify(this._pipeline);
+                            } else if (this._doc) {
+                                queryStr = JSON.stringify(this._doc);
+                            }
+                        } catch (_) {
+                            queryStr = '[unserializable]';
                         }
-                    } catch (_) {
-                        queryStr = '[unserializable]';
-                    }
-                    if (queryStr.length > 300) queryStr = queryStr.slice(0, 297) + '...';
+                        if (queryStr.length > 300) queryStr = queryStr.slice(0, 297) + '...';
 
-                    slowQueryTracker.observe(collectionName, operation, durationSeconds, queryStr);
+                        slowQueryTracker.observe(collectionName, operation, durationSeconds, queryStr);
+                    }
                 }
 
                 if (operation === 'aggregate') {

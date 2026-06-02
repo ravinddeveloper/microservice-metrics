@@ -38,9 +38,9 @@ class BackPressureSampler {
     #overloadedGauge  = null;
 
     constructor(cfg = {}) {
-        this.#cpuThreshold        = cfg.cpuThreshold       ?? 85;
+        this.#cpuThreshold        = cfg.cpuThreshold       ?? 100;
         this.#heapThreshold       = cfg.heapThreshold      ?? 80;
-        this.#eventLoopThreshold  = cfg.eventLoopThreshold ?? 100;
+        this.#eventLoopThreshold  = cfg.eventLoopThreshold ?? 500;
         this.#sampleIntervalMs    = cfg.sampleIntervalMs   ?? 1000;
 
         this.#cpuUsagePrev = process.cpuUsage();
@@ -125,9 +125,12 @@ class BackPressureSampler {
             this.#highCpuCount = 0;
         }
 
-        if (this.#highCpuCount >= 2 && heap > this.#heapThreshold) {
+        if (heap > this.#heapThreshold) {
             this.#overloaded = true;
-            this.#lastReason = 'cpu and heap';
+            this.#lastReason = 'heap';
+        } else if (this.#highCpuCount >= 2) {
+            this.#overloaded = true;
+            this.#lastReason = 'cpu';
         } else {
             this.#overloaded = false;
             this.#lastReason = null;
