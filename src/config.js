@@ -31,7 +31,7 @@ let config = {
     maxMetricsSizeMb: 20,
     httpRequestP90Metics: true,
     backPressure: {
-        enabled: true,
+        enabled: false,
         cpuThreshold: 100,
         heapThreshold: 80,
         eventLoopThreshold: 500,
