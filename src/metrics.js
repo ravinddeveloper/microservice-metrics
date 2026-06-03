@@ -465,6 +465,10 @@ async function initMetrics(options = {}) {
         ...(options || {}),
         endpointAllowlist: [...config.endpointAllowlist, ...(options?.endpointAllowlist || [])],
         endpointDenylist: [...config.endpointDenylist, ...(options?.endpointDenylist || [])],
+        mongo: { ...config.mongo, ...(options?.mongo || {}) },
+        fileTrack: { ...config.fileTrack, ...(options?.fileTrack || {}) },
+        rabbitmq: { ...config.rabbitmq, ...(options?.rabbitmq || {}) },
+        redis: { ...config.redis, ...(options?.redis || {}) },
     });
 
     if (config.trackOutbound) {

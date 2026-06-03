@@ -14,13 +14,13 @@ let config = {
     endpointDenylist: ["GET:/favicon.ico", "GET:/", "GET:/health", "GET:/ready", "GET:/metrics", "GET:/v1/health-check"],
     slowThresholdSeconds: 3,
     sloThresholdMs: parseInt(process.env.DEFAULT_API_RESPONSE_THRESHOLD) || null,
-    resetAfterScrape: true,
+    resetAfterScrape: false,
     resetIntervalSeconds: null,
     pushgatewayUrl: null,
     getUpTime: true,
     getVmUpTime: true,
     mongo: {
-        topQuery: false,
+        topQuery: true,
         slowThresholdSeconds: 3,
         mongoOperationMetrics: false,
     },
@@ -29,7 +29,7 @@ let config = {
     disableConnectorMetrics: false,
     disableMicroflowMetrics: false,
     maxMetricsSizeMb: 20,
-    httpRequestP90Metics: true,
+    httpRequestP90Metics: false,
     backPressure: {
         enabled: false,
         cpuThreshold: 100,
@@ -40,11 +40,11 @@ let config = {
     },
     metricsToReset: [],
     metricsNotToReset: ["app_uptime_seconds", "vm_uptime_seconds"],
-    resetSchedule: '0 0 * * *',
+    resetScheduler: '0 0 * * *',
     fileTrack: {
         fileThresholdMb: 5,
         minDurationMs: 1000,
-        enabled: true,
+        enabled: false,
         trackTop10: false,
     },
     rabbitmq: {

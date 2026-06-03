@@ -4,9 +4,11 @@ import config from '../config.js';
 const metricsHandler = () => {
     return async (_req, res) => {
         try {
-            const metrics = await registry.metrics();
-            const bytes = Buffer.from(metrics).byteLength;
+            let metrics = await registry.metrics();
+            let bytes = Buffer.from(metrics).byteLength;
             metricsPayloadSizeBytes.set(defaultLabelValues, bytes);
+            metrics = await registry.metrics();
+            bytes = Buffer.from(metrics).byteLength;
             res.set('Content-Type', registry.contentType);
             if (config.resetAfterScrape) {
                 registry.resetMetrics();
