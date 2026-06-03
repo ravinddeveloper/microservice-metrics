@@ -7,6 +7,9 @@ import {
     httpRequestsInFlight,
     httpErrorsTotal,
     httpSlowRequestsTotal,
+    httpSloViolationsTotal,
+    httpRequestSizeBytes,
+    httpResponseSizeBytes,
     httpActiveConnections,
     httpConnectionDurationSeconds,
     httpConnectionErrorsTotal,
@@ -125,9 +128,29 @@ const metricsMiddleware = () => {
                     httpSlowRequestsTotal.inc({ method, endpoint, ...defaultLabelValues });
                 }
 
+                const requestSize = parseInt(req.headers['content-length']) || 0;
+                if (requestSize > 0) {
+                    httpRequestSizeBytes.observe(labels, requestSize);
+                }
+
+                const responseSize = parseInt(res.getHeader('content-length')) || 0;
+                if (responseSize > 0) {
+                    httpResponseSizeBytes.observe(labels, responseSize);
+                }
+
                 if (res.statusCode >= 400) {
                     const error_type = res.statusCode >= 500 ? '5xx' : '4xx';
                     httpErrorsTotal.inc({ method, endpoint, error_type, ...defaultLabelValues });
+                }
+
+                const sloThresholdMs = config.sloThresholdMs;
+                if (sloThresholdMs && durationSeconds * 1000 > sloThresholdMs && res.statusCode < 400) {
+                    httpSloViolationsTotal.inc({
+                        method,
+                        endpoint,
+                        threshold_ms: String(sloThresholdMs),
+                        ...defaultLabelValues,
+                    });
                 }
             });
 

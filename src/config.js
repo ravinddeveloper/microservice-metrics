@@ -13,6 +13,7 @@ let config = {
     endpointAllowlist: [],
     endpointDenylist: ["GET:/favicon.ico", "GET:/", "GET:/health", "GET:/ready", "GET:/metrics", "GET:/v1/health-check"],
     slowThresholdSeconds: 3,
+    sloThresholdMs: parseInt(process.env.DEFAULT_API_RESPONSE_THRESHOLD) || null,
     resetAfterScrape: true,
     resetIntervalSeconds: null,
     pushgatewayUrl: null,

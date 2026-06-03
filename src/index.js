@@ -7,6 +7,8 @@ export { trackOutboundDependencies } from './instruments/outbound.js';
 export { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
 export { trackRabbitMQ } from './instruments/rabbitmq.js';
 export { trackRedis } from './instruments/redis.js';
+export { initVmMonitoring, stopVmMonitoring } from './instruments/vmMonitor.js';
+export { initDebuggingMetrics } from './instruments/debugging.js';
 export { healthHandler } from './endpoints/health.js';
 export { readinessHandler, registerReadinessCheck } from './endpoints/readiness.js';
 export { metricsHandler, resetMetricsHandler } from './endpoints/metricsHandler.js';

@@ -168,6 +168,72 @@ const httpSlowRequestsTotal = new Counter({
     registers: [registry],
 });
 
+const httpSloViolationsTotal = new Counter({
+    name: 'http_slo_violations_total',
+    help: 'Total count where response time exceeds per-route SLO threshold',
+    labelNames: ['method', 'endpoint', 'threshold_ms', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const httpRequestSizeBytes = new Histogram({
+    name: 'http_request_size_bytes',
+    help: 'HTTP request size in bytes',
+    labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
+    buckets: [100, 1000, 10000, 100000, 1000000, 10000000],
+    registers: [registry],
+});
+
+const httpResponseSizeBytes = new Histogram({
+    name: 'http_response_size_bytes',
+    help: 'HTTP response size in bytes',
+    labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
+    buckets: [100, 1000, 10000, 100000, 1000000, 10000000],
+    registers: [registry],
+});
+
+const unhandledRejectionsTotal = new Counter({
+    name: 'unhandled_rejections_total',
+    help: 'Unhandled promise rejections',
+    labelNames: ['reason', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const uncaughtExceptionsTotal = new Counter({
+    name: 'uncaught_exceptions_total',
+    help: 'Uncaught exceptions',
+    labelNames: ['error_type', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const vmTotalMemoryBytes = new Gauge({
+    name: 'nodejs_total_memory_bytes',
+    help: 'Total available system memory in bytes',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const vmUsedMemoryBytes = new Gauge({
+    name: 'nodejs_used_memory_bytes',
+    help: 'Used system memory in bytes',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const vmCpuUsagePercent = new Gauge({
+    name: 'cpu_usage_percent',
+    help: 'CPU usage percentage per core',
+    labelNames: ['core', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const vmStorageUsageBytes = new Gauge({
+    name: 'storage_usage_bytes',
+    help: 'Storage utilization in bytes (LOGS_STORAGE_PATH)',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+
 const appUptimeSeconds = new Gauge({
     name: 'app_uptime_seconds',
     help: 'Application uptime in seconds',
@@ -490,7 +556,11 @@ export {
     httpRequestsInFlight,
     httpErrorsTotal,
     httpSlowRequestsTotal,
+    httpSloViolationsTotal,
+    httpRequestSizeBytes,
+    httpResponseSizeBytes,
     appUptimeSeconds,
+    vmUptimeSeconds,
     dependencyRequestDuration,
     dependencyFailuresTotal,
     metricsPayloadSizeBytes,
@@ -527,6 +597,12 @@ export {
     redisCacheHits,
     redisCacheMisses,
     redisConnectionErrors,
+    unhandledRejectionsTotal,
+    uncaughtExceptionsTotal,
+    vmTotalMemoryBytes,
+    vmUsedMemoryBytes,
+    vmCpuUsagePercent,
+    vmStorageUsageBytes,
 };
 
 export const Builder = {
