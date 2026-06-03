@@ -44,10 +44,10 @@ function makeTop10Tracker(gauge, keyField, threshold = 0) {
 }
 
 class ConnectorMetrics {
-    #histogram    = null;
-    #counter      = null;
-    #activeRequests = null;
-    #config       = null;
+    #histogram= null;
+    #counter= null;
+    #activeRequests= null;
+    #config= null;
     constructor(config = {}) {
         this.#config = config;
         this.#histogram = registry.getSingleMetric("platform_connector_request_duration_seconds") || new Histogram({
@@ -90,10 +90,10 @@ class ConnectorMetrics {
 }
 
 class MicroflowMetrics {
-    #histogram      = null;
-    #counter        = null;
-    #activeRequests = null;
-    #config         = null;
+    #histogram= null;
+    #counter= null;
+    #activeRequests= null;
+    #config= null;
     constructor(config = {}) {
         this.#config = config;
         this.#histogram = registry.getSingleMetric("platform_microflow_request_duration_seconds") || new Histogram({
@@ -136,18 +136,18 @@ class MicroflowMetrics {
 }
 
 class DocumentUploadMetrics {
-    #uploadRequestCount  = null;
-    #uploadSizeHistogram = null;
-    #uploadErrorCount    = null;
-    #uploadResponseTime  = null;
-    #top10DurationGauge  = null;
-    #top10SizeGauge      = null;
-    #durationTracker     = null;
-    #sizeTracker         = null;
-    #enabled = false;
+    #uploadRequestCount= null;
+    #uploadSizeHistogram= null;
+    #uploadErrorCount= null;
+    #uploadResponseTime= null;
+    #top10DurationGauge= null;
+    #top10SizeGauge= null;
+    #durationTracker= null;
+    #sizeTracker= null;
+    #config= null;
 
     constructor(config) {
-        this.#enabled = config?.fileTrack?.enabled ?? false;
+        this.#config = config;
 
         this.#uploadSizeHistogram = registry.getSingleMetric("file_upload_size_bytes") || new Histogram({
             name: "file_upload_size_bytes",
@@ -201,41 +201,41 @@ class DocumentUploadMetrics {
     }
 
     inc() {
-        if (this.#uploadRequestCount && this.#enabled) this.#uploadRequestCount.inc();
+        if (this.#uploadRequestCount && this.#config?.fileTrack?.enabled) this.#uploadRequestCount.inc();
     }
 
     observe(duration, type) {
-        if (this.#uploadResponseTime && this.#enabled) this.#uploadResponseTime.observe(duration);
-        if (this.#enabled && this.#durationTracker && type) {
+        if (this.#uploadResponseTime && this.#config?.fileTrack?.enabled) this.#uploadResponseTime.observe(duration);
+        if (this.#config?.fileTrack?.trackTop10 && this.#durationTracker && type) {
             this.#durationTracker.observe(duration, type);
         }
     }
 
     size(size, type) {
-        if (this.#uploadSizeHistogram && this.#enabled) this.#uploadSizeHistogram.observe(size);
-        if (this.#enabled && this.#sizeTracker && type) {
+        if (this.#uploadSizeHistogram && this.#config?.fileTrack?.enabled) this.#uploadSizeHistogram.observe(size);
+        if (this.#config?.fileTrack?.trackTop10 && this.#sizeTracker && type) {
             this.#sizeTracker.observe(size, type);
         }
     }
 
     error() {
-        if (this.#uploadErrorCount && this.#enabled) this.#uploadErrorCount.inc();
+        if (this.#uploadErrorCount && this.#config?.fileTrack?.enabled) this.#uploadErrorCount.inc();
     }
 }
 
 class DocumentDownloadMetrics {
-    #downloadSizeHistogram = null;
-    #downloadResponseTime  = null;
-    #downloadRequestCount  = null;
-    #downloadErrorCount    = null;
-    #top10DurationGauge    = null;
-    #top10SizeGauge        = null;
-    #durationTracker       = null;
-    #sizeTracker           = null;
-    #enabled = false;
+    #downloadSizeHistogram= null;
+    #downloadResponseTime= null;
+    #downloadRequestCount= null;
+    #downloadErrorCount= null;
+    #top10DurationGauge= null;
+    #top10SizeGauge= null;
+    #durationTracker= null;
+    #sizeTracker= null;
+    #config= null;
 
     constructor(config) {
-        this.#enabled = config?.fileTrack?.enabled ?? false;
+        this.#config = config;
 
         this.#downloadSizeHistogram = registry.getSingleMetric("document_download_size_bytes") || new Histogram({
             name: "document_download_size_bytes",
@@ -289,41 +289,41 @@ class DocumentDownloadMetrics {
     }
 
     inc() {
-        if (this.#downloadRequestCount && this.#enabled) this.#downloadRequestCount.inc();
+        if (this.#downloadRequestCount && this.#config?.fileTrack?.enabled) this.#downloadRequestCount.inc();
     }
 
     observe(duration, type) {
-        if (this.#downloadResponseTime && this.#enabled) this.#downloadResponseTime.observe(duration);
-        if (this.#enabled && this.#durationTracker && type) {
+        if (this.#downloadResponseTime && this.#config?.fileTrack?.enabled) this.#downloadResponseTime.observe(duration);
+        if (this.#config?.fileTrack?.trackTop10 && this.#durationTracker && type) {
             this.#durationTracker.observe(duration, type);
         }
     }
 
     size(size, type) {
-        if (this.#downloadSizeHistogram && this.#enabled) this.#downloadSizeHistogram.observe(size);
-        if (this.#enabled && this.#sizeTracker && type) {
+        if (this.#downloadSizeHistogram && this.#config?.fileTrack?.enabled) this.#downloadSizeHistogram.observe(size);
+        if (this.#config?.fileTrack?.trackTop10 && this.#sizeTracker && type) {
             this.#sizeTracker.observe(size, type);
         }
     }
 
     error() {
-        if (this.#downloadErrorCount && this.#enabled) this.#downloadErrorCount.inc();
+        if (this.#downloadErrorCount && this.#config?.fileTrack?.enabled) this.#downloadErrorCount.inc();
     }
 }
 
 class GeneratePdf {
-    #GeneratePdfMetrics       = null;
-    #GeneratePdfError         = null;
-    #GeneratePdfTotalRequests = null;
-    #GeneratePdfSize          = null;
-    #top10DurationGauge       = null;
-    #top10SizeGauge           = null;
-    #durationTracker          = null;
-    #sizeTracker              = null;
-    #enabled = false;
+    #GeneratePdfMetrics= null;
+    #GeneratePdfError= null;
+    #GeneratePdfTotalRequests= null;
+    #GeneratePdfSize= null;
+    #top10DurationGauge= null;
+    #top10SizeGauge= null;
+    #durationTracker= null;
+    #sizeTracker= null;
+    #config= null;
 
     constructor(config) {
-        this.#enabled = config?.fileTrack?.enabled ?? false;
+        this.#config = config;
 
         this.#GeneratePdfMetrics = registry.getSingleMetric("platform_generate_pdf_request_duration_seconds") || new Histogram({
             name: "platform_generate_pdf_request_duration_seconds",
@@ -377,23 +377,23 @@ class GeneratePdf {
     }
 
     inc() {
-        if (this.#GeneratePdfTotalRequests && this.#enabled) this.#GeneratePdfTotalRequests.inc();
+        if (this.#GeneratePdfTotalRequests && this.#config?.fileTrack?.enabled) this.#GeneratePdfTotalRequests.inc();
     }
 
     observe(duration, type) {
-        if (this.#GeneratePdfMetrics && this.#enabled) this.#GeneratePdfMetrics.observe(duration);
-        if (this.#enabled && this.#durationTracker && type) {
+        if (this.#GeneratePdfMetrics && this.#config?.fileTrack?.enabled) this.#GeneratePdfMetrics.observe(duration);
+        if (this.#config?.fileTrack?.trackTop10 && this.#durationTracker && type) {
             this.#durationTracker.observe(duration, type);
         }
     }
 
     error() {
-        if (this.#GeneratePdfError && this.#enabled) this.#GeneratePdfError.inc();
+        if (this.#GeneratePdfError && this.#config?.fileTrack?.enabled) this.#GeneratePdfError.inc();
     }
 
     size(size, type) {
-        if (this.#GeneratePdfSize && this.#enabled) this.#GeneratePdfSize.observe(size);
-        if (this.#enabled && this.#sizeTracker && type) {
+        if (this.#GeneratePdfSize && this.#config?.fileTrack?.enabled) this.#GeneratePdfSize.observe(size);
+        if (this.#config?.fileTrack?.trackTop10 && this.#sizeTracker && type) {
             this.#sizeTracker.observe(size, type);
         }
     }

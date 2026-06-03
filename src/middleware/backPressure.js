@@ -15,37 +15,37 @@ class BackPressureSampler {
     #eventLoopThreshold;
     #sampleIntervalMs;
 
-    #loopMonitor    = null;
-    #cpuUsagePrev   = null;
-    #cpuTimePrev    = null;
-    #numCpus        = 1;
+    #loopMonitor = null;
+    #cpuUsagePrev = null;
+    #cpuTimePrev = null;
+    #numCpus = 1;
 
-    #overloaded        = false;
-    #lastReason        = null;
+    #overloaded = false;
+    #lastReason = null;
     #episodeRejections = 0;
 
-    #smoothedCpu     = 0;
-    #cpuInitialized  = false;
-    #cpuEmaAlpha     = 0.5;
-    #highCpuCount    = 0;
+    #smoothedCpu = 0;
+    #cpuInitialized = false;
+    #cpuEmaAlpha = 0.5;
+    #highCpuCount = 0;
 
-    #timer            = null;
+    #timer = null;
 
     #episodeHistogram = null;
-    #cpuGauge         = null;
-    #heapGauge        = null;
-    #eventLoopGauge   = null;
-    #overloadedGauge  = null;
+    #cpuGauge = null;
+    #heapGauge = null;
+    #eventLoopGauge = null;
+    #overloadedGauge = null;
 
     constructor(cfg = {}) {
-        this.#cpuThreshold        = cfg.cpuThreshold       ?? 100;
-        this.#heapThreshold       = cfg.heapThreshold      ?? 80;
-        this.#eventLoopThreshold  = cfg.eventLoopThreshold ?? 500;
-        this.#sampleIntervalMs    = cfg.sampleIntervalMs   ?? 1000;
+        this.#cpuThreshold = cfg.cpuThreshold ?? 100;
+        this.#heapThreshold = cfg.heapThreshold ?? 80;
+        this.#eventLoopThreshold = cfg.eventLoopThreshold ?? 500;
+        this.#sampleIntervalMs = cfg.sampleIntervalMs ?? 1000;
 
         this.#cpuUsagePrev = process.cpuUsage();
-        this.#cpuTimePrev  = process.hrtime.bigint();
-        this.#numCpus      = os.cpus().length || 1;
+        this.#cpuTimePrev = process.hrtime.bigint();
+        this.#numCpus = os.cpus().length || 1;
 
         this.#loopMonitor = monitorEventLoopDelay({ resolution: 20 });
         this.#loopMonitor.enable();
@@ -85,12 +85,12 @@ class BackPressureSampler {
     }
 
     #sampleCpu() {
-        const now       = process.hrtime.bigint();
-        const usage     = process.cpuUsage();
+        const now = process.hrtime.bigint();
+        const usage = process.cpuUsage();
         const elapsedUs = Number(now - this.#cpuTimePrev) / 1e3;
-        const cpuUs     = (usage.user - this.#cpuUsagePrev.user) + (usage.system - this.#cpuUsagePrev.system);
+        const cpuUs = (usage.user - this.#cpuUsagePrev.user) + (usage.system - this.#cpuUsagePrev.system);
         this.#cpuUsagePrev = usage;
-        this.#cpuTimePrev  = now;
+        this.#cpuTimePrev = now;
         if (elapsedUs <= 0) return this.#smoothedCpu;
         const rawPercent = Math.min(100, (cpuUs / elapsedUs / this.#numCpus) * 100);
         if (!this.#cpuInitialized) {
@@ -108,9 +108,9 @@ class BackPressureSampler {
     }
 
     #tick() {
-        const cpu  = this.#sampleCpu();
+        const cpu = this.#sampleCpu();
         const heap = this.#sampleHeap();
-        const lag  = this.#loopMonitor.mean / 1e6;
+        const lag = this.#loopMonitor.mean / 1e6;
         this.#loopMonitor.reset();
 
         this.#cpuGauge.set(parseFloat(cpu.toFixed(2)));
