@@ -6,6 +6,8 @@ import { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUp
 import os from 'os';
 import v8 from 'v8';
 import cron from 'node-cron';
+import { trackRabbitMQ } from './instruments/rabbitmq.js';
+import { trackRedis } from './instruments/redis.js';
 
 const { Registry, Counter, Histogram, Gauge, Summary, collectDefaultMetrics, Pushgateway } = client;
 
@@ -166,6 +168,72 @@ const httpSlowRequestsTotal = new Counter({
     registers: [registry],
 });
 
+const httpSloViolationsTotal = new Counter({
+    name: 'http_slo_violations_total',
+    help: 'Total count where response time exceeds per-route SLO threshold',
+    labelNames: ['method', 'endpoint', 'threshold_ms', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const httpRequestSizeBytes = new Histogram({
+    name: 'http_request_size_bytes',
+    help: 'HTTP request size in bytes',
+    labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
+    buckets: [100, 1000, 10000, 100000, 1000000, 10000000],
+    registers: [registry],
+});
+
+const httpResponseSizeBytes = new Histogram({
+    name: 'http_response_size_bytes',
+    help: 'HTTP response size in bytes',
+    labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
+    buckets: [100, 1000, 10000, 100000, 1000000, 10000000],
+    registers: [registry],
+});
+
+const unhandledRejectionsTotal = new Counter({
+    name: 'unhandled_rejections_total',
+    help: 'Unhandled promise rejections',
+    labelNames: ['reason', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const uncaughtExceptionsTotal = new Counter({
+    name: 'uncaught_exceptions_total',
+    help: 'Uncaught exceptions',
+    labelNames: ['error_type', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const vmTotalMemoryBytes = new Gauge({
+    name: 'nodejs_total_memory_bytes',
+    help: 'Total available system memory in bytes',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const vmUsedMemoryBytes = new Gauge({
+    name: 'nodejs_used_memory_bytes',
+    help: 'Used system memory in bytes',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const vmCpuUsagePercent = new Gauge({
+    name: 'cpu_usage_percent',
+    help: 'CPU usage percentage per core',
+    labelNames: ['core', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const vmStorageUsageBytes = new Gauge({
+    name: 'storage_usage_bytes',
+    help: 'Storage utilization in bytes (LOGS_STORAGE_PATH)',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+
 const appUptimeSeconds = new Gauge({
     name: 'app_uptime_seconds',
     help: 'Application uptime in seconds',
@@ -275,6 +343,100 @@ const networkIoErrorsTotal = new Counter({
     registers: [registry],
 });
 
+const rabbitmqPublished = new Counter({
+    name: 'rabbitmq_messages_published_total',
+    help: 'Total messages published to RabbitMQ',
+    labelNames: ['exchange', 'routing_key', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const rabbitmqConsumed = new Counter({
+    name: 'rabbitmq_messages_consumed_total',
+    help: 'Total messages consumed from RabbitMQ',
+    labelNames: ['queue', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const rabbitmqPublishDuration = new Histogram({
+    name: 'rabbitmq_publish_duration_seconds',
+    help: 'RabbitMQ message publish duration in seconds',
+    labelNames: ['exchange', 'routing_key', ...DEFAULT_LABELS],
+    buckets: [0.001, 0.01, 0.05, 0.1, 0.5, 1, 5],
+    registers: [registry],
+});
+
+const rabbitmqConsumeDuration = new Histogram({
+    name: 'rabbitmq_consume_duration_seconds',
+    help: 'RabbitMQ message processing duration in seconds',
+    labelNames: ['queue', ...DEFAULT_LABELS],
+    buckets: [0.01, 0.1, 0.5, 1, 5, 10, 30, 60],
+    registers: [registry],
+});
+
+const rabbitmqPublishErrors = new Counter({
+    name: 'rabbitmq_publish_errors_total',
+    help: 'Total RabbitMQ publish errors',
+    labelNames: ['exchange', 'error_type', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const rabbitmqChannelErrors = new Counter({
+    name: 'rabbitmq_channel_errors_total',
+    help: 'Total RabbitMQ channel errors',
+    labelNames: ['error_type', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const rabbitmqConnectionState = new Gauge({
+    name: 'rabbitmq_connection_state',
+    help: 'RabbitMQ connection state (0=disconnected, 1=connected)',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const rabbitmqRedeliveries = new Counter({
+    name: 'rabbitmq_message_redeliveries_total',
+    help: 'Total redelivered messages',
+    labelNames: ['queue', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const redisCommands = new Counter({
+    name: 'redis_commands_total',
+    help: 'Total Redis commands executed',
+    labelNames: ['command', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const redisCommandDuration = new Histogram({
+    name: 'redis_command_duration_seconds',
+    help: 'Redis command execution duration in seconds',
+    labelNames: ['command', ...DEFAULT_LABELS],
+    buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1],
+    registers: [registry],
+});
+
+const redisCacheHits = new Counter({
+    name: 'redis_cache_hits_total',
+    help: 'Total Redis cache hits',
+    labelNames: ['key_prefix', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const redisCacheMisses = new Counter({
+    name: 'redis_cache_misses_total',
+    help: 'Total Redis cache misses',
+    labelNames: ['key_prefix', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const redisConnectionErrors = new Counter({
+    name: 'redis_connection_errors_total',
+    help: 'Total Redis connection errors',
+    labelNames: ['error_type', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
 /**
  * @author Ravi N D
  * @param {Object} options
@@ -307,6 +469,14 @@ async function initMetrics(options = {}) {
 
     if (config.trackOutbound) {
         trackOutboundDependencies();
+    }
+
+    if (config.rabbitmq?.enabled && config.rabbitmq?.amqplib) {
+        trackRabbitMQ(config.rabbitmq.amqplib);
+    }
+
+    if (config.redis?.enabled && config.redis?.client) {
+        trackRedis(config.redis.client);
     }
 
     if (config.mongoose) {
@@ -386,7 +556,11 @@ export {
     httpRequestsInFlight,
     httpErrorsTotal,
     httpSlowRequestsTotal,
+    httpSloViolationsTotal,
+    httpRequestSizeBytes,
+    httpResponseSizeBytes,
     appUptimeSeconds,
+    vmUptimeSeconds,
     dependencyRequestDuration,
     dependencyFailuresTotal,
     metricsPayloadSizeBytes,
@@ -410,6 +584,25 @@ export {
     networkBytesReceivedTotal,
     networkBytesSentTotal,
     networkIoErrorsTotal,
+    rabbitmqPublished,
+    rabbitmqConsumed,
+    rabbitmqPublishDuration,
+    rabbitmqConsumeDuration,
+    rabbitmqPublishErrors,
+    rabbitmqChannelErrors,
+    rabbitmqConnectionState,
+    rabbitmqRedeliveries,
+    redisCommands,
+    redisCommandDuration,
+    redisCacheHits,
+    redisCacheMisses,
+    redisConnectionErrors,
+    unhandledRejectionsTotal,
+    uncaughtExceptionsTotal,
+    vmTotalMemoryBytes,
+    vmUsedMemoryBytes,
+    vmCpuUsagePercent,
+    vmStorageUsageBytes,
 };
 
 export const Builder = {
