@@ -9,6 +9,7 @@
 
 
 
+
 Reusable observability package for Node.js Express microservices.  
 Provides Prometheus-compatible metrics, health/readiness endpoints, HTTP middleware, and dependency tracking — zero boilerplate.
 
