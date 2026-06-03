@@ -20,7 +20,7 @@ let config = {
     getUpTime: true,
     getVmUpTime: true,
     mongo: {
-        topQuery: true,
+        topQuery: false,
         slowThresholdSeconds: 3,
         mongoOperationMetrics: false,
     },
@@ -41,10 +41,11 @@ let config = {
     metricsToReset: [],
     metricsNotToReset: ["app_uptime_seconds", "vm_uptime_seconds"],
     resetSchedule: '0 0 * * *',
-    fileTrack:{
+    fileTrack: {
         fileThresholdMb: 5,
         minDurationMs: 1000,
         enabled: true,
+        trackTop10: false,
     },
     rabbitmq: {
         enabled: false,
