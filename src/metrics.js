@@ -458,7 +458,7 @@ const redisConnectionErrors = new Counter({
  * @param {boolean} [getVmUpTime=false]
  * @param {string[]|object[]} [metricsToReset=[]]
  * @param {string[]|object[]} [metricsNotToReset=[]]
- * @param {string} [resetSchedule='0 0 * * *']
+ * @param {string} [resetScheduler='0 0 * * *']
  */
 async function initMetrics(options = {}) {
     Object.assign(config, {
@@ -525,8 +525,8 @@ async function initMetrics(options = {}) {
     const hasToReset = config.metricsToReset && config.metricsToReset.length > 0;
     const hasNotToReset = config.metricsNotToReset && config.metricsNotToReset.length > 0;
 
-    if ((hasToReset || hasNotToReset) && config.resetSchedule) {
-        cron.schedule(config.resetSchedule, () => {
+    if ((hasToReset || hasNotToReset) && config.resetScheduler) {
+        cron.schedule(config.resetScheduler, () => {
             if (hasToReset) {
                 config.metricsToReset.forEach(metricOrName => {
                     let metric = metricOrName;
