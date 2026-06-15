@@ -77,7 +77,8 @@ const wrapConnection = (connection) => {
         const channel = await originalCreateConfirmChannel();
         return wrapChannel(channel);
     };
-
+    connection.on('connect', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 1));
+    connection.on('disconnect', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 0));
     connection.on('close', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 0));
     connection.on('error', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 0));
 
