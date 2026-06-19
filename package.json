@@ -21,7 +21,7 @@
   "dependencies": {
     "graphql": "16.14.0",
     "ip-range-check": "0.2.0",
-    "mongoose": "9.6.2",
+    "mongoose": "^8.24.0",
     "node-cron": "^4.2.1",
     "prom-client": "15.1.0"
   },
