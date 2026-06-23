@@ -8,6 +8,7 @@ import v8 from 'v8';
 import cron from 'node-cron';
 import { trackRabbitMQ } from './instruments/rabbitmq.js';
 import { trackRedis } from './instruments/redis.js';
+import { initPerfHooksMetrics, stopPerfHooksMetrics } from './instruments/perfHooks.js';
 
 const { Registry, Counter, Histogram, Gauge, Summary, collectDefaultMetrics, Pushgateway } = client;
 
@@ -481,6 +482,10 @@ async function initMetrics(options = {}) {
 
     if (config.redis?.enabled && config.redis?.client) {
         trackRedis(config.redis.client);
+    }
+
+    if (config.perf_metrics_enabled) {
+        initPerfHooksMetrics();
     }
 
     if (config.mongoose) {

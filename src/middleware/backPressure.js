@@ -1,9 +1,11 @@
 import v8 from 'v8';
 import os from 'os';
+import fs from 'fs/promises';
 import { monitorEventLoopDelay } from 'perf_hooks';
 import { registry } from '../metrics.js';
 import config from '../config.js';
 import client from 'prom-client';
+import { getActiveRequests, getP95Latency } from './runtimeState.js';
 
 const { Histogram, Gauge } = client;
 
@@ -13,6 +15,9 @@ class BackPressureSampler {
     #cpuThreshold;
     #heapThreshold;
     #eventLoopThreshold;
+    #activeRequestsThreshold;
+    #containerMemoryThreshold;
+    #p95LatencyThreshold;
     #sampleIntervalMs;
 
     #loopMonitor = null;
@@ -29,18 +34,28 @@ class BackPressureSampler {
     #cpuEmaAlpha = 0.5;
     #highCpuCount = 0;
 
+    #containerMemoryPercent = 0;
+    #cgroupSupported = true;
+
     #timer = null;
+    #memTimer = null;
 
     #episodeHistogram = null;
     #cpuGauge = null;
     #heapGauge = null;
     #eventLoopGauge = null;
     #overloadedGauge = null;
+    #containerMemGauge = null;
+    #activeReqGauge = null;
+    #p95LatencyGauge = null;
 
     constructor(cfg = {}) {
         this.#cpuThreshold = cfg.cpuThreshold ?? 100;
         this.#heapThreshold = cfg.heapThreshold ?? 80;
         this.#eventLoopThreshold = cfg.eventLoopThreshold ?? 500;
+        this.#activeRequestsThreshold = cfg.activeRequestsThreshold ?? Infinity;
+        this.#containerMemoryThreshold = cfg.containerMemoryThreshold ?? 90;
+        this.#p95LatencyThreshold = cfg.p95LatencyThreshold ?? Infinity;
         this.#sampleIntervalMs = cfg.sampleIntervalMs ?? 1000;
 
         this.#cpuUsagePrev = process.cpuUsage();
@@ -80,8 +95,37 @@ class BackPressureSampler {
             help: 'Back pressure active state: 1 = overloaded, 0 = normal',
             registers: [registry],
         });
+
+        this.#containerMemGauge = registry.getSingleMetric('back_pressure_container_memory_percent') || new Gauge({
+            name: 'back_pressure_container_memory_percent',
+            help: 'Container cgroup memory usage percent',
+            registers: [registry],
+        });
+
+        this.#activeReqGauge = registry.getSingleMetric('back_pressure_active_requests') || new Gauge({
+            name: 'back_pressure_active_requests',
+            help: 'Current number of in-flight requests',
+            registers: [registry],
+        });
+
+        this.#p95LatencyGauge = registry.getSingleMetric('back_pressure_p95_latency_ms') || new Gauge({
+            name: 'back_pressure_p95_latency_ms',
+            help: 'P95 request latency in ms (rolling 5-min window)',
+            registers: [registry],
+        });
+
         this.#timer = setInterval(() => this.#tick(), this.#sampleIntervalMs);
         this.#timer.unref?.();
+
+        this.#memTimer = setInterval(() => {
+            this.#updateContainerMemory().catch(() => {});
+        }, 5000);
+        this.#memTimer.unref?.();
+    }
+
+    async warmup() {
+        await this.#updateContainerMemory();
+        this.#tick();
     }
 
     #sampleCpu() {
@@ -94,7 +138,7 @@ class BackPressureSampler {
         if (elapsedUs <= 0) return this.#smoothedCpu;
         const rawPercent = Math.min(100, (cpuUs / elapsedUs / this.#numCpus) * 100);
         if (!this.#cpuInitialized) {
-            this.#smoothedCpu    = rawPercent;
+            this.#smoothedCpu = rawPercent;
             this.#cpuInitialized = true;
         } else {
             this.#smoothedCpu += this.#cpuEmaAlpha * (rawPercent - this.#smoothedCpu);
@@ -107,15 +151,54 @@ class BackPressureSampler {
         return (used_heap_size / heap_size_limit) * 100;
     }
 
+    async #updateContainerMemory() {
+        if (!this.#cgroupSupported) return;
+        try {
+            let usagePath, limitPath;
+
+            try {
+                await fs.access('/sys/fs/cgroup/memory.current');
+                usagePath = '/sys/fs/cgroup/memory.current';
+                limitPath = '/sys/fs/cgroup/memory.max';
+            } catch {
+                usagePath = '/sys/fs/cgroup/memory/memory.usage_in_bytes';
+                limitPath = '/sys/fs/cgroup/memory/memory.limit_in_bytes';
+            }
+
+            const usage = BigInt((await fs.readFile(usagePath, 'utf8')).trim());
+            const limitRaw = (await fs.readFile(limitPath, 'utf8')).trim();
+
+            if (limitRaw === 'max' || BigInt(limitRaw) > 9_000_000_000_000_000_000n) {
+                this.#containerMemoryPercent = 0;
+                return;
+            }
+
+            const limit = BigInt(limitRaw);
+            if (limit > 0n) {
+                this.#containerMemoryPercent = Number((usage * 10_000n) / limit) / 100;
+            }
+        } catch (err) {
+            console.warn("Disabling backpressure cgroup memory check (not supported in this environment):", err.message);
+            this.#cgroupSupported = false;
+            this.#containerMemoryPercent = 0;
+        }
+    }
+
     #tick() {
         const cpu = this.#sampleCpu();
         const heap = this.#sampleHeap();
         const lag = this.#loopMonitor.mean / 1e6;
         this.#loopMonitor.reset();
+        const activeReqs = getActiveRequests();
+        const p95 = getP95Latency();
+        const containerMem = this.#containerMemoryPercent;
 
         this.#cpuGauge.set(parseFloat(cpu.toFixed(2)));
         this.#heapGauge.set(parseFloat(heap.toFixed(2)));
         this.#eventLoopGauge.set(parseFloat(lag.toFixed(2)));
+        this.#containerMemGauge.set(parseFloat(containerMem.toFixed(2)));
+        this.#activeReqGauge.set(activeReqs);
+        this.#p95LatencyGauge.set(parseFloat(p95.toFixed(2)));
 
         const wasOverloaded = this.#overloaded;
 
@@ -127,10 +210,22 @@ class BackPressureSampler {
 
         if (heap > this.#heapThreshold) {
             this.#overloaded = true;
-            this.#lastReason = 'heap';
-        } else if (this.#highCpuCount >= 2) {
+            this.#lastReason = 'BP_01_H';
+        } else if (this.#highCpuCount >= 3) {
             this.#overloaded = true;
-            this.#lastReason = 'cpu';
+            this.#lastReason = 'BP_02_C';
+        } else if (lag > this.#eventLoopThreshold) {
+            this.#overloaded = true;
+            this.#lastReason = 'BP_03_EL';
+        } else if (containerMem > 0 && containerMem > this.#containerMemoryThreshold) {
+            this.#overloaded = true;
+            this.#lastReason = 'BP_04_CM';
+        } else if (this.#activeRequestsThreshold < Infinity && activeReqs > this.#activeRequestsThreshold) {
+            this.#overloaded = true;
+            this.#lastReason = 'BP_05_AR';
+        } else if (this.#p95LatencyThreshold < Infinity && p95 > this.#p95LatencyThreshold) {
+            this.#overloaded = true;
+            this.#lastReason = 'BP_06_P95';
         } else {
             this.#overloaded = false;
             this.#lastReason = null;
@@ -146,15 +241,17 @@ class BackPressureSampler {
         this.#overloadedGauge.set(this.#overloaded ? 1 : 0);
     }
 
+
     incRejected() {
         this.#episodeRejections++;
     }
 
-    get overloaded()   { return this.#overloaded; }
-    get reason()       { return this.#lastReason; }
+    get overloaded() { return this.#overloaded; }
+    get reason()     { return this.#lastReason; }
 
     stop() {
         clearInterval(this.#timer);
+        clearInterval(this.#memTimer);
         this.#loopMonitor.disable();
     }
 }
@@ -170,6 +267,7 @@ const backPressureMiddleware = (cfg = {}) => {
 
     if (!_sampler) {
         _sampler = new BackPressureSampler(mergedCfg);
+        _sampler.warmup().catch(() => {});
     }
 
     const exempt = mergedCfg.exemptPaths?.length

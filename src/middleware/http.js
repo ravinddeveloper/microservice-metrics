@@ -18,6 +18,7 @@ import {
     defaultLabelValues,
 } from '../metrics.js';
 import { parse, getOperationAST } from "graphql";
+import { incrementActive, decrementActive, recordLatency } from './runtimeState.js';
 
 const getGraphQLRootField = (req) => {
     try {
@@ -79,6 +80,9 @@ const metricsMiddleware = () => {
             const startEndpoint = req.path || 'unknown';
             const trackedInFlight = shouldTrack(method, startEndpoint);
             let inFlightDecremented = false;
+            let activeDecremented = false;
+
+            incrementActive();
 
             const socket = req.socket;
             if (config.trackNetworkMetrics && socket && !socket._metricsTracked) {
@@ -103,6 +107,10 @@ const metricsMiddleware = () => {
             }
 
             res.on('finish', () => {
+                if (!activeDecremented) {
+                    activeDecremented = true;
+                    decrementActive();
+                }
                 if (trackedInFlight && !inFlightDecremented) {
                     inFlightDecremented = true;
                     httpRequestsInFlight.dec({ method, ...defaultLabelValues });
@@ -114,6 +122,7 @@ const metricsMiddleware = () => {
                 if (res.statusCode === 404) return;
 
                 const durationSeconds = Number(process.hrtime.bigint() - startTime) / 1e9;
+                recordLatency(durationSeconds * 1000);
                 const status = String(res.statusCode);
                 const labels = { method, endpoint, ...defaultLabelValues };
 
@@ -155,6 +164,10 @@ const metricsMiddleware = () => {
             });
 
             res.on('close', () => {
+                if (!activeDecremented) {
+                    activeDecremented = true;
+                    decrementActive();
+                }
                 if (trackedInFlight && !inFlightDecremented) {
                     inFlightDecremented = true;
                     httpRequestsInFlight.dec({ method, ...defaultLabelValues });

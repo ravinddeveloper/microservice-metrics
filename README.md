@@ -48,6 +48,7 @@ import {
     metricsHandler,
     ipAllowlistMiddleware,
     trackDependency,
+    backPressureMiddleware
 } from '@latitudenpm/metrics';
 
 initMetrics();
@@ -71,6 +72,17 @@ app.get('/api/users/:id', async (req, res) => {
     );
     res.json(user);
 });
+
+
+// Back pressure example
+//codes 
+// BP_01_H : heap usage (80%)
+// BP_02_C : high cpu usage (100%)
+// BP_03_EL : event loop delay (500ms)
+// BP_04_CM : container memory usage (90%)
+// BP_05_AR : active requests (Infinity)
+// BP_06_P95 : p95 latency (Infinity)
+app.use(backPressureMiddleware({ /* optional custom thresholds */ }));
 
 app.listen(8080);
 ```

@@ -30,11 +30,15 @@ let config = {
     disableMicroflowMetrics: false,
     maxMetricsSizeMb: 20,
     httpRequestP90Metics: false,
+    perf_metrics_enabled : true,
     backPressure: {
         enabled: false,
         cpuThreshold: 100,
         heapThreshold: 80,
         eventLoopThreshold: 500,
+        activeRequestsThreshold: 500, // 500 requests
+        containerMemoryThreshold: 90, // 90% memory
+        p95LatencyThreshold: 2000, // 2 seconds
         sampleIntervalMs: 1000,
         exemptPaths: [],
     },
