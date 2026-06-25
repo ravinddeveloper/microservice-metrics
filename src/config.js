@@ -7,9 +7,10 @@ let config = {
     metricsPort: null,
     includeSystemMetrics: true,
     allowedIPs: '',
-    buckets: [0.1, 0.5, 1, 2, 5],
-    httpBuckets: [0.5, 1, 2, 5, 10],
-    platformBuckets: [1, 5, 15, 30, 60],
+    buckets: [0.05, 0.1, 0.25, 0.5, 1, 5],
+    httpBuckets: [0.05, 0.1, 0.25, 0.5, 1, 5],
+    platformBuckets: [0.05, 0.1, 0.25, 0.5, 1, 5],
+    mongoBucket: [0.05, 0.1, 0.25, 0.5, 1, 5],
     endpointAllowlist: [],
     endpointDenylist: ["GET:/favicon.ico", "GET:/", "GET:/health", "GET:/ready", "GET:/metrics", "GET:/v1/health-check"],
     slowThresholdSeconds: 3,
@@ -39,6 +40,7 @@ let config = {
         activeRequestsThreshold: 500, // 500 requests
         containerMemoryThreshold: 90, // 90% memory
         p95LatencyThreshold: 2000, // 2 seconds
+        p95LatencyEnabled : false,
         sampleIntervalMs: 1000,
         exemptPaths: [],
     },

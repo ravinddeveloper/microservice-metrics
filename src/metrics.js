@@ -37,7 +37,7 @@ const httpRequestDuration = new Histogram({
     name: 'http_request_duration_seconds',
     help: 'HTTP request duration in seconds',
     labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
-    buckets: config.httpBuckets || [0.5, 1, 2, 5, 10],
+    buckets: config.httpBuckets || [0.05, 0.1, 0.25, 0.5, 1, 5],
     registers: [registry],
 });
 
@@ -55,7 +55,7 @@ const httpOverallRequestDuration = new Histogram({
     name: 'http_overall_request_duration_seconds',
     help: 'Overall HTTP request duration in seconds',
     labelNames: [...DEFAULT_LABELS],
-    buckets: config.httpBuckets || [0.5, 1, 2, 5, 10],
+    buckets: config.httpBuckets || [0.05, 0.1, 0.25, 0.5, 1, 5],
     registers: [registry],
 });
 
@@ -92,7 +92,7 @@ const mongooseQueryDuration = new Histogram({
     name: 'mongoose_query_duration_seconds',
     help: 'Mongoose query latency in seconds',
     labelNames: ['collection', 'operation', ...DEFAULT_LABELS],
-    buckets: config.buckets,
+    buckets: config.mongoBucket,
     registers: [registry],
 });
 
@@ -114,7 +114,7 @@ const mongooseAggregationDuration = new Histogram({
     name: 'mongoose_aggregation_duration_seconds',
     help: 'Mongoose aggregation latency in seconds',
     labelNames: ['collection', ...DEFAULT_LABELS],
-    buckets: config.buckets,
+    buckets: config.mongoBucket,
     registers: [registry],
 });
 
@@ -288,7 +288,7 @@ const httpConnectionDurationSeconds = new Histogram({
     name: 'http_connection_duration_seconds',
     help: 'HTTP connection duration in seconds',
     labelNames: [...DEFAULT_LABELS],
-    buckets: config.httpBuckets || [0.1, 0.5, 1, 5, 10, 30],
+    buckets: config.httpBuckets || [0.05, 0.1, 0.25, 0.5, 1, 5],
     registers: [registry],
 });
 
@@ -311,7 +311,7 @@ const httpClientRequestDurationSeconds = new Histogram({
     name: 'http_client_request_duration_seconds',
     help: 'HTTP client request duration in seconds',
     labelNames: ['host', 'method', 'status', ...DEFAULT_LABELS],
-    buckets: config.httpBuckets || [0.1, 0.5, 1, 2, 5, 10],
+    buckets: config.httpBuckets || [0.05, 0.1, 0.25, 0.5, 1, 5],
     registers: [registry],
 });
 

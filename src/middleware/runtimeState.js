@@ -2,22 +2,27 @@ import v8 from 'v8';
 import os from 'os';
 import { performance } from 'node:perf_hooks';
 
-const MAX_SAMPLES = Number(process.env["METRICS.BACKPRESSURE.MAX_SAMPLES"] ?? 1000); // 1000 samples for p95 latency
-const RESET_WINDOW_MS = Number(process.env["METRICS.BACKPRESSURE.RESET_WINDOW_MS"] ?? 300000); // 5 minutes window
+const MAX_SAMPLES = Number(process.env['METRICS.BACKPRESSURE.MAX_SAMPLES'] ?? 1000);
+const RESET_WINDOW_MS = Number(process.env['METRICS.BACKPRESSURE.RESET_WINDOW_MS'] ?? 300_000);
+const CPU_EMA_ALPHA = 0.35;
 
-let activeRequests = 0; // active requests
+let activeRequests = 0;
 
-const latencies = new Float64Array(MAX_SAMPLES); // 1000 samples for p95 latency
+const latencies = new Float64Array(MAX_SAMPLES);
+const _sortBuf = new Float64Array(MAX_SAMPLES);
 let writeIndex = 0;
 let sampleCount = 0;
 
-function incrementActive() {
-    activeRequests++;
-}
+let _cpuUsagePrev = process.cpuUsage();
+let _cpuTimePrev = process.hrtime.bigint();
+const _numCpus = os.cpus().length || 1;
+let _smoothedCpu = 0;
+let _cpuInitialized = false;
 
-function decrementActive() {
-    activeRequests = Math.max(0, activeRequests - 1);
-}
+let _eluPrev = performance.eventLoopUtilization();
+
+function incrementActive() { activeRequests++; }
+function decrementActive() { activeRequests = Math.max(0, activeRequests - 1); }
 
 function recordLatency(ms) {
     latencies[writeIndex] = ms;
@@ -25,17 +30,33 @@ function recordLatency(ms) {
     if (sampleCount < MAX_SAMPLES) sampleCount++;
 }
 
-function getActiveRequests() {
-    return activeRequests;
+function getActiveRequests() { return activeRequests; }
+
+function getCpuPercent() {
+    const now = process.hrtime.bigint();
+    const usage = process.cpuUsage();
+    const elapsedUs = Number(now - _cpuTimePrev) / 1e3;
+    if (elapsedUs <= 0) return _smoothedCpu;
+
+    const cpuUs = (usage.user - _cpuUsagePrev.user) + (usage.system - _cpuUsagePrev.system);
+    const rawPercent = Math.min(100, (cpuUs / elapsedUs / _numCpus) * 100);
+    _cpuUsagePrev = usage;
+    _cpuTimePrev = now;
+
+    if (!_cpuInitialized) {
+        _smoothedCpu = rawPercent;
+        _cpuInitialized = true;
+    } else {
+        _smoothedCpu += CPU_EMA_ALPHA * (rawPercent - _smoothedCpu);
+    }
+    return _smoothedCpu;
 }
 
 function getP95Latency() {
     if (!sampleCount) return 0;
-
-    const samples = Array.from(latencies.slice(0, sampleCount));
-    samples.sort((a, b) => a - b);
-
-    return samples[Math.floor(sampleCount * 0.95)];
+    _sortBuf.set(latencies.subarray(0, sampleCount));
+    _sortBuf.subarray(0, sampleCount).sort();
+    return _sortBuf[Math.floor(sampleCount * 0.95)];
 }
 
 const resetTimer = setInterval(() => {
@@ -45,37 +66,25 @@ const resetTimer = setInterval(() => {
 }, RESET_WINDOW_MS);
 resetTimer.unref?.();
 
-let _cpuUsagePrev = process.cpuUsage();
-let _cpuTimePrev = process.hrtime.bigint();
-let _eluPrev = performance.eventLoopUtilization();
-
 function getSnapshot() {
-    const now = process.hrtime.bigint();
-    const cpuNow = process.cpuUsage();
+    const cpu = getCpuPercent();
     const eluNow = performance.eventLoopUtilization();
-    const mem = process.memoryUsage();
-    const heap = v8.getHeapStatistics();
-    const numCpus = os.cpus().length || 1;
-
-    const elapsedUs = Number(now - _cpuTimePrev) / 1e3;
-    const cpuUs = (cpuNow.user - _cpuUsagePrev.user) + (cpuNow.system - _cpuUsagePrev.system);
-    const cpuPct = elapsedUs > 0 ? Math.min(100, (cpuUs / elapsedUs / numCpus) * 100) : 0;
     const eluDelta = performance.eventLoopUtilization(_eluPrev, eluNow);
-
-    _cpuUsagePrev = cpuNow;
-    _cpuTimePrev = now;
     _eluPrev = eluNow;
 
-    const sorted = sampleCount
-        ? Array.from(latencies.slice(0, sampleCount)).sort((a, b) => a - b)
-        : [];
+    const mem = process.memoryUsage();
+    const heap = v8.getHeapStatistics();
+
+    _sortBuf.set(latencies.subarray(0, sampleCount));
+    const sortedSlice = _sortBuf.subarray(0, sampleCount);
+    sortedSlice.sort();
+    const p95 = sortedSlice.length ? parseFloat(sortedSlice[Math.floor(sortedSlice.length * 0.95)].toFixed(2)) : 0;
+    const p99 = sortedSlice.length ? parseFloat(sortedSlice[Math.floor(sortedSlice.length * 0.99)].toFixed(2)) : 0;
 
     return {
         cpu: {
-            usagePercent: parseFloat(cpuPct.toFixed(2)),
-            userMs: Math.round(cpuNow.user / 1000),
-            systemMs: Math.round(cpuNow.system / 1000),
-            cores: numCpus,
+            usagePercent: parseFloat(cpu.toFixed(2)),
+            cores: _numCpus,
             loadAvg1m: os.loadavg()[0],
         },
         memory: {
@@ -86,7 +95,7 @@ function getSnapshot() {
             rssBytes: mem.rss,
             externalBytes: mem.external,
             systemTotalBytes: os.totalmem(),
-            systemFreeBytes:  os.freemem(),
+            systemFreeBytes: os.freemem(),
             systemUsedPercent: parseFloat(((1 - os.freemem() / os.totalmem()) * 100).toFixed(2)),
         },
         eventLoop: {
@@ -94,8 +103,8 @@ function getSnapshot() {
         },
         requests: {
             active: activeRequests,
-            p95LatencyMs: sorted.length ? parseFloat(sorted[Math.floor(sorted.length * 0.95)].toFixed(2)) : 0,
-            p99LatencyMs: sorted.length ? parseFloat(sorted[Math.floor(sorted.length * 0.99)].toFixed(2)) : 0,
+            p95LatencyMs: p95,
+            p99LatencyMs: p99,
             sampleCount,
         },
         process: {
@@ -106,4 +115,4 @@ function getSnapshot() {
     };
 }
 
-export { incrementActive, decrementActive, recordLatency, getActiveRequests, getP95Latency, getSnapshot };
+export { incrementActive, decrementActive, recordLatency, getActiveRequests, getP95Latency, getCpuPercent, getSnapshot };

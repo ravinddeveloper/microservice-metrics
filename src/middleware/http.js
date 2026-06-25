@@ -122,7 +122,9 @@ const metricsMiddleware = () => {
                 if (res.statusCode === 404) return;
 
                 const durationSeconds = Number(process.hrtime.bigint() - startTime) / 1e9;
-                recordLatency(durationSeconds * 1000);
+                if (config.backPressure.p95LatencyEnabled) {
+                    recordLatency(durationSeconds * 1000);
+                }
                 const status = String(res.statusCode);
                 const labels = { method, endpoint, ...defaultLabelValues };
 
