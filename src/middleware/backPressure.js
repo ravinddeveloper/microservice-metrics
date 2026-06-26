@@ -1,9 +1,10 @@
 import v8 from 'v8';
-import os from 'os';
-import { monitorEventLoopDelay } from 'perf_hooks';
+import fs from 'fs/promises';
+import { performance } from 'perf_hooks';
 import { registry } from '../metrics.js';
 import config from '../config.js';
 import client from 'prom-client';
+import { getCpuPercent, getActiveRequests, getP95Latency } from './runtimeState.js';
 
 const { Histogram, Gauge } = client;
 
@@ -12,43 +13,47 @@ const EXEMPT_PATHS = new Set(['/metrics', '/health', '/ready', '/v1/health-check
 class BackPressureSampler {
     #cpuThreshold;
     #heapThreshold;
-    #eventLoopThreshold;
+    #eluThreshold;
+    #activeRequestsThreshold;
+    #containerMemoryThreshold;
+    #p95LatencyThreshold;
     #sampleIntervalMs;
+    #recoveryHeadroom;
+    #cooldownTicks;
 
-    #loopMonitor = null;
-    #cpuUsagePrev = null;
-    #cpuTimePrev = null;
-    #numCpus = 1;
-
+    #eluPrev = null;
     #overloaded = false;
     #lastReason = null;
     #episodeRejections = 0;
+    #cleanTickCount = 0;
 
-    #smoothedCpu = 0;
-    #cpuInitialized = false;
-    #cpuEmaAlpha = 0.5;
-    #highCpuCount = 0;
+    #containerMemoryPercent = 0;
+    #cgroupSupported = true;
 
     #timer = null;
+    #memTimer = null;
 
     #episodeHistogram = null;
     #cpuGauge = null;
     #heapGauge = null;
-    #eventLoopGauge = null;
+    #eluGauge = null;
     #overloadedGauge = null;
+    #containerMemGauge = null;
+    #activeReqGauge = null;
+    #p95LatencyGauge = null;
 
     constructor(cfg = {}) {
-        this.#cpuThreshold = cfg.cpuThreshold ?? 100;
+        this.#cpuThreshold = cfg.cpuThreshold ?? 85;
         this.#heapThreshold = cfg.heapThreshold ?? 80;
-        this.#eventLoopThreshold = cfg.eventLoopThreshold ?? 500;
+        this.#eluThreshold = cfg.eventLoopUtilizationThreshold ?? 0.85;
+        this.#activeRequestsThreshold = cfg.activeRequestsThreshold ?? Infinity;
+        this.#containerMemoryThreshold = cfg.containerMemoryThreshold ?? 90;
+        this.#p95LatencyThreshold = cfg.p95LatencyThreshold ?? Infinity;
         this.#sampleIntervalMs = cfg.sampleIntervalMs ?? 1000;
+        this.#recoveryHeadroom = cfg.recoveryHeadroom ?? 0.85;
+        this.#cooldownTicks = cfg.cooldownTicks ?? 2;
 
-        this.#cpuUsagePrev = process.cpuUsage();
-        this.#cpuTimePrev = process.hrtime.bigint();
-        this.#numCpus = os.cpus().length || 1;
-
-        this.#loopMonitor = monitorEventLoopDelay({ resolution: 20 });
-        this.#loopMonitor.enable();
+        this.#eluPrev = performance.eventLoopUtilization();
 
         this.#episodeHistogram = registry.getSingleMetric('back_pressure_episode_rejections') || new Histogram({
             name: 'back_pressure_episode_rejections',
@@ -59,7 +64,7 @@ class BackPressureSampler {
 
         this.#cpuGauge = registry.getSingleMetric('back_pressure_cpu_percent') || new Gauge({
             name: 'back_pressure_cpu_percent',
-            help: 'Current CPU usage percent sampled by back pressure',
+            help: 'EMA-smoothed CPU usage percent (α=0.35) sampled by back pressure',
             registers: [registry],
         });
 
@@ -69,9 +74,9 @@ class BackPressureSampler {
             registers: [registry],
         });
 
-        this.#eventLoopGauge = registry.getSingleMetric('back_pressure_event_loop_lag_ms') || new Gauge({
-            name: 'back_pressure_event_loop_lag_ms',
-            help: 'Current event-loop lag in ms sampled by back pressure',
+        this.#eluGauge = registry.getSingleMetric('back_pressure_event_loop_utilization') || new Gauge({
+            name: 'back_pressure_event_loop_utilization',
+            help: 'Event loop utilization ratio (0-1) per sample interval — replaces raw lag ms',
             registers: [registry],
         });
 
@@ -80,26 +85,37 @@ class BackPressureSampler {
             help: 'Back pressure active state: 1 = overloaded, 0 = normal',
             registers: [registry],
         });
+
+        this.#containerMemGauge = registry.getSingleMetric('back_pressure_container_memory_percent') || new Gauge({
+            name: 'back_pressure_container_memory_percent',
+            help: 'Container cgroup memory usage percent',
+            registers: [registry],
+        });
+
+        this.#activeReqGauge = registry.getSingleMetric('back_pressure_active_requests') || new Gauge({
+            name: 'back_pressure_active_requests',
+            help: 'Current number of in-flight requests',
+            registers: [registry],
+        });
+
+        this.#p95LatencyGauge = registry.getSingleMetric('back_pressure_p95_latency_ms') || new Gauge({
+            name: 'back_pressure_p95_latency_ms',
+            help: 'P95 request latency in ms (rolling 5-min window)',
+            registers: [registry],
+        });
+
         this.#timer = setInterval(() => this.#tick(), this.#sampleIntervalMs);
         this.#timer.unref?.();
+
+        this.#memTimer = setInterval(() => {
+            this.#updateContainerMemory().catch(() => {});
+        }, 5000);
+        this.#memTimer.unref?.();
     }
 
-    #sampleCpu() {
-        const now = process.hrtime.bigint();
-        const usage = process.cpuUsage();
-        const elapsedUs = Number(now - this.#cpuTimePrev) / 1e3;
-        const cpuUs = (usage.user - this.#cpuUsagePrev.user) + (usage.system - this.#cpuUsagePrev.system);
-        this.#cpuUsagePrev = usage;
-        this.#cpuTimePrev = now;
-        if (elapsedUs <= 0) return this.#smoothedCpu;
-        const rawPercent = Math.min(100, (cpuUs / elapsedUs / this.#numCpus) * 100);
-        if (!this.#cpuInitialized) {
-            this.#smoothedCpu    = rawPercent;
-            this.#cpuInitialized = true;
-        } else {
-            this.#smoothedCpu += this.#cpuEmaAlpha * (rawPercent - this.#smoothedCpu);
-        }
-        return this.#smoothedCpu;
+    async warmup() {
+        await this.#updateContainerMemory();
+        this.#tick();
     }
 
     #sampleHeap() {
@@ -107,33 +123,103 @@ class BackPressureSampler {
         return (used_heap_size / heap_size_limit) * 100;
     }
 
+    #sampleElu() {
+        const current = performance.eventLoopUtilization();
+        const delta = performance.eventLoopUtilization(this.#eluPrev, current);
+        this.#eluPrev = current;
+        return delta.utilization;
+    }
+
+    async #updateContainerMemory() {
+        if (!this.#cgroupSupported) return;
+        try {
+            let usagePath, limitPath;
+            try {
+                await fs.access('/sys/fs/cgroup/memory.current');
+                usagePath = '/sys/fs/cgroup/memory.current';
+                limitPath = '/sys/fs/cgroup/memory.max';
+            } catch {
+                usagePath = '/sys/fs/cgroup/memory/memory.usage_in_bytes';
+                limitPath = '/sys/fs/cgroup/memory/memory.limit_in_bytes';
+            }
+
+            const usage = BigInt((await fs.readFile(usagePath, 'utf8')).trim());
+            const limitRaw = (await fs.readFile(limitPath, 'utf8')).trim();
+
+            if (limitRaw === 'max' || BigInt(limitRaw) > 9_000_000_000_000_000_000n) {
+                this.#containerMemoryPercent = 0;
+                return;
+            }
+
+            const limit = BigInt(limitRaw);
+            if (limit > 0n) {
+                this.#containerMemoryPercent = Number((usage * 10_000n) / limit) / 100;
+            }
+        } catch (err) {
+            console.warn('Disabling backpressure cgroup memory check (not supported):', err.message);
+            this.#cgroupSupported = false;
+            this.#containerMemoryPercent = 0;
+        }
+    }
+
+    #isAboveRecoveryThreshold(cpu, heap, elu, containerMem, activeReqs, p95) {
+        const h = this.#recoveryHeadroom;
+        if (heap > this.#heapThreshold * h) return true;
+        if (cpu > this.#cpuThreshold * h) return true;
+        if (elu > this.#eluThreshold * h) return true;
+        if (containerMem > 0 && containerMem > this.#containerMemoryThreshold * h) return true;
+        if (this.#activeRequestsThreshold < Infinity && activeReqs > this.#activeRequestsThreshold * h) return true;
+        if (this.#p95LatencyThreshold < Infinity && p95 > this.#p95LatencyThreshold * h) return true;
+        return false;
+    }
+
     #tick() {
-        const cpu = this.#sampleCpu();
+        const cpu = getCpuPercent();
         const heap = this.#sampleHeap();
-        const lag = this.#loopMonitor.mean / 1e6;
-        this.#loopMonitor.reset();
+        const elu = this.#sampleElu();
+        const activeReqs = getActiveRequests();
+        const p95 = getP95Latency();
+        const containerMem = this.#containerMemoryPercent;
 
         this.#cpuGauge.set(parseFloat(cpu.toFixed(2)));
         this.#heapGauge.set(parseFloat(heap.toFixed(2)));
-        this.#eventLoopGauge.set(parseFloat(lag.toFixed(2)));
+        this.#eluGauge.set(parseFloat(elu.toFixed(4)));
+        this.#containerMemGauge.set(parseFloat(containerMem.toFixed(2)));
+        this.#activeReqGauge.set(activeReqs);
+        this.#p95LatencyGauge.set(parseFloat(p95.toFixed(2)));
 
         const wasOverloaded = this.#overloaded;
 
-        if (cpu > this.#cpuThreshold) {
-            this.#highCpuCount++;
-        } else {
-            this.#highCpuCount = 0;
+        let breachReason = null;
+        if (heap > this.#heapThreshold) {
+            breachReason = 'BP_01_H';
+        } else if (cpu > this.#cpuThreshold) {
+            breachReason = 'BP_02_C';
+        } else if (elu > this.#eluThreshold) {
+            breachReason = 'BP_03_EL';
+        } else if (containerMem > 0 && containerMem > this.#containerMemoryThreshold) {
+            breachReason = 'BP_04_CM';
+        } else if (this.#activeRequestsThreshold < Infinity && activeReqs > this.#activeRequestsThreshold) {
+            breachReason = 'BP_05_AR';
+        } else if (this.#p95LatencyThreshold < Infinity && p95 > this.#p95LatencyThreshold) {
+            breachReason = 'BP_06_P95';
         }
 
-        if (heap > this.#heapThreshold) {
+        if (breachReason) {
             this.#overloaded = true;
-            this.#lastReason = 'heap';
-        } else if (this.#highCpuCount >= 2) {
-            this.#overloaded = true;
-            this.#lastReason = 'cpu';
-        } else {
-            this.#overloaded = false;
-            this.#lastReason = null;
+            this.#lastReason = breachReason;
+            this.#cleanTickCount = 0;
+        } else if (wasOverloaded) {
+            if (!this.#isAboveRecoveryThreshold(cpu, heap, elu, containerMem, activeReqs, p95)) {
+                this.#cleanTickCount++;
+                if (this.#cleanTickCount >= this.#cooldownTicks) {
+                    this.#overloaded = false;
+                    this.#lastReason = null;
+                    this.#cleanTickCount = 0;
+                }
+            } else {
+                this.#cleanTickCount = 0;
+            }
         }
 
         if (wasOverloaded && !this.#overloaded) {
@@ -146,16 +232,13 @@ class BackPressureSampler {
         this.#overloadedGauge.set(this.#overloaded ? 1 : 0);
     }
 
-    incRejected() {
-        this.#episodeRejections++;
-    }
-
-    get overloaded()   { return this.#overloaded; }
-    get reason()       { return this.#lastReason; }
+    incRejected() { this.#episodeRejections++; }
+    get overloaded() { return this.#overloaded; }
+    get reason() { return this.#lastReason; }
 
     stop() {
         clearInterval(this.#timer);
-        this.#loopMonitor.disable();
+        clearInterval(this.#memTimer);
     }
 }
 
@@ -170,6 +253,7 @@ const backPressureMiddleware = (cfg = {}) => {
 
     if (!_sampler) {
         _sampler = new BackPressureSampler(mergedCfg);
+        _sampler.warmup().catch(() => {});
     }
 
     const exempt = mergedCfg.exemptPaths?.length

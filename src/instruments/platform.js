@@ -54,7 +54,7 @@ class ConnectorMetrics {
             name: "platform_connector_request_duration_seconds",
             help: "Duration of connector requests in seconds",
             labelNames: [...DEFAULT_LABELS, "name", "connectorId"],
-            buckets: this.#config.platformBuckets || [1, 5, 15, 30, 60],
+            buckets: this.#config.platformBuckets || [0.05, 0.1, 0.25, 0.5, 1, 5],
             registers: [registry],
         });
         this.#counter = registry.getSingleMetric("platform_connector_error_total") || new Counter({
@@ -100,7 +100,7 @@ class MicroflowMetrics {
             name: "platform_microflow_request_duration_seconds",
             help: "Duration of microflow requests in seconds",
             labelNames: [...DEFAULT_LABELS, "name", "microflowId"],
-            buckets: this.#config.platformBuckets || [1, 5, 15, 30, 60],
+            buckets: this.#config.platformBuckets || [0.05, 0.1, 0.25, 0.5, 1, 5],
             registers: [registry],
         });
         this.#counter = registry.getSingleMetric("platform_microflow_error_total") || new Counter({
@@ -400,4 +400,106 @@ class GeneratePdf {
 }
 
 
-export { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUploadMetrics, GeneratePdf };
+const HISTOGRAM_PERCENTILE_KEYS = [
+    'p0_001', 'p0_01', 'p0_1',
+    'p1', 'p2_5', 'p10', 'p25', 'p50', 'p75',
+    'p90', 'p97_5', 'p99', 'p99_9', 'p99_99', 'p99_999',
+];
+
+class PiscinaMetrics {
+    #runTimeGauge = null;
+    #waitTimeGauge = null;
+    #threadCountGauge = null;
+    #idleThreadsGauge = null;
+    #queueSizeGauge = null;
+    #needsDrainGauge = null;
+    #utilizationGauge = null;
+
+    constructor() {
+        const histogramLabelNames = [...DEFAULT_LABELS, 'stat'];
+
+        this.#runTimeGauge = registry.getSingleMetric('piscina_run_time_milliseconds') || new Gauge({
+            name: 'piscina_run_time_milliseconds',
+            help: 'Piscina worker pool task run time summary (average, mean, stddev, min, max, percentiles) in ms',
+            labelNames: histogramLabelNames,
+            registers: [registry],
+        });
+
+        this.#waitTimeGauge = registry.getSingleMetric('piscina_wait_time_milliseconds') || new Gauge({
+            name: 'piscina_wait_time_milliseconds',
+            help: 'Piscina worker pool task queue wait time summary (average, mean, stddev, min, max, percentiles) in ms',
+            labelNames: histogramLabelNames,
+            registers: [registry],
+        });
+
+        this.#threadCountGauge = registry.getSingleMetric('piscina_thread_count') || new Gauge({
+            name: 'piscina_thread_count',
+            help: 'Total number of Worker threads in the Piscina pool',
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry],
+        });
+
+        this.#idleThreadsGauge = registry.getSingleMetric('piscina_idle_threads') || new Gauge({
+            name: 'piscina_idle_threads',
+            help: 'Number of idle (ready) Worker threads not running any task',
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry],
+        });
+
+        this.#queueSizeGauge = registry.getSingleMetric('piscina_queue_size') || new Gauge({
+            name: 'piscina_queue_size',
+            help: 'Number of tasks waiting to be assigned to a Worker thread',
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry],
+        });
+
+        this.#needsDrainGauge = registry.getSingleMetric('piscina_needs_drain') || new Gauge({
+            name: 'piscina_needs_drain',
+            help: 'Whether the pool capacity has been exceeded (1 = true, 0 = false)',
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry],
+        });
+
+        this.#utilizationGauge = registry.getSingleMetric('piscina_utilization_ratio') || new Gauge({
+            name: 'piscina_utilization_ratio',
+            help: 'Ratio of approximate total mean run time to total runtime capacity (0-1)',
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry],
+        });
+    }
+
+    #setHistogramGauge(gauge, histogram) {
+        if (!histogram || !gauge) return;
+        const baseLabels = { service_name: config.serviceName, environment: config.environment, instance: config.instance };
+        const scalarStats = ['average', 'mean', 'stddev', 'min', 'max'];
+        [...scalarStats, ...HISTOGRAM_PERCENTILE_KEYS].forEach(stat => {
+            if (histogram[stat] != null) {
+                gauge.set({ ...baseLabels, stat }, histogram[stat]);
+            }
+        });
+    }
+
+    collect(piscina) {
+        if (!piscina) return;
+        const baseLabels = { service_name: config.serviceName, environment: config.environment, instance: config.instance };
+
+        this.#setHistogramGauge(this.#runTimeGauge, piscina.runTime);
+        this.#setHistogramGauge(this.#waitTimeGauge, piscina.waitTime);
+
+        if (this.#threadCountGauge) this.#threadCountGauge.set(baseLabels, piscina.threads?.length ?? 0);
+        if (this.#idleThreadsGauge) this.#idleThreadsGauge.set(baseLabels, piscina.idleWorkers ?? 0);
+        if (this.#queueSizeGauge) this.#queueSizeGauge.set(baseLabels, piscina.queueSize ?? 0);
+        if (this.#needsDrainGauge) this.#needsDrainGauge.set(baseLabels, piscina.needsDrain ? 1 : 0);
+        if (this.#utilizationGauge) this.#utilizationGauge.set(baseLabels, piscina.utilization ?? 0);
+    }
+
+    get runTime() { return this.#runTimeGauge; }
+    get waitTime() { return this.#waitTimeGauge; }
+    get threads() { return this.#threadCountGauge; }
+    get idleThreads() { return this.#idleThreadsGauge; }
+    get queueSize() { return this.#queueSizeGauge; }
+    get needsDrain() { return this.#needsDrainGauge; }
+    get utilization() { return this.#utilizationGauge; }
+}
+
+export { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUploadMetrics, GeneratePdf, PiscinaMetrics };

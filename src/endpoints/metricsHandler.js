@@ -10,10 +10,13 @@ const metricsHandler = () => {
             metrics = await registry.metrics();
             bytes = Buffer.from(metrics).byteLength;
             res.set('Content-Type', registry.contentType);
-            if (config.resetAfterScrape) {
-                registry.resetMetrics();
-            } else if (config.maxMetricsSizeMb && (bytes / 1024 / 1024) > config.maxMetricsSizeMb) {
-                registry.resetMetrics();
+            if (config.resetAfterScrape || (config.maxMetricsSizeMb && (bytes / 1024 / 1024) > config.maxMetricsSizeMb)) {
+                const excludeNames = config.metricsNotToReset.map(m => typeof m === 'string' ? m : m.name);
+                registry.getMetricsAsArray().forEach(metric => {
+                    if (!excludeNames.includes(metric.name) && typeof metric.reset === 'function') {
+                        metric.reset();
+                    }
+                });
             }
             res.end(metrics);
         } catch (err) {

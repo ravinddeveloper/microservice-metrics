@@ -2,12 +2,13 @@ import client from 'prom-client';
 import config from './config.js';
 import { trackOutboundDependencies } from './instruments/outbound.js';
 import { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
-import { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUploadMetrics, GeneratePdf } from './instruments/platform.js';
+import { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUploadMetrics, GeneratePdf, PiscinaMetrics } from './instruments/platform.js';
 import os from 'os';
 import v8 from 'v8';
 import cron from 'node-cron';
 import { trackRabbitMQ } from './instruments/rabbitmq.js';
 import { trackRedis } from './instruments/redis.js';
+import { initPerfHooksMetrics, stopPerfHooksMetrics } from './instruments/perfHooks.js';
 
 const { Registry, Counter, Histogram, Gauge, Summary, collectDefaultMetrics, Pushgateway } = client;
 
@@ -23,7 +24,7 @@ const defaultLabelValues = {
 
 registry.setDefaultLabels(defaultLabelValues);
 
-const Platform = { ConnectorMetrics: new ConnectorMetrics(config), MicroflowMetrics: new MicroflowMetrics(config), DocumentDownloadMetrics: new DocumentDownloadMetrics(config), DocumentUploadMetrics : new DocumentUploadMetrics(config), GeneratePdf: new GeneratePdf(config)};
+const Platform = { ConnectorMetrics: new ConnectorMetrics(config), MicroflowMetrics: new MicroflowMetrics(config), DocumentDownloadMetrics: new DocumentDownloadMetrics(config), DocumentUploadMetrics : new DocumentUploadMetrics(config), GeneratePdf: new GeneratePdf(config), PiscinaMetrics: new PiscinaMetrics() };
 
 const httpRequestsTotal = new Counter({
     name: 'http_requests_total',
@@ -36,7 +37,7 @@ const httpRequestDuration = new Histogram({
     name: 'http_request_duration_seconds',
     help: 'HTTP request duration in seconds',
     labelNames: ['method', 'endpoint', ...DEFAULT_LABELS],
-    buckets: config.httpBuckets || [0.5, 1, 2, 5, 10],
+    buckets: config.httpBuckets || [0.05, 0.1, 0.25, 0.5, 1, 5],
     registers: [registry],
 });
 
@@ -54,7 +55,7 @@ const httpOverallRequestDuration = new Histogram({
     name: 'http_overall_request_duration_seconds',
     help: 'Overall HTTP request duration in seconds',
     labelNames: [...DEFAULT_LABELS],
-    buckets: config.httpBuckets || [0.5, 1, 2, 5, 10],
+    buckets: config.httpBuckets || [0.05, 0.1, 0.25, 0.5, 1, 5],
     registers: [registry],
 });
 
@@ -91,7 +92,7 @@ const mongooseQueryDuration = new Histogram({
     name: 'mongoose_query_duration_seconds',
     help: 'Mongoose query latency in seconds',
     labelNames: ['collection', 'operation', ...DEFAULT_LABELS],
-    buckets: config.buckets,
+    buckets: config.mongoBucket,
     registers: [registry],
 });
 
@@ -113,7 +114,7 @@ const mongooseAggregationDuration = new Histogram({
     name: 'mongoose_aggregation_duration_seconds',
     help: 'Mongoose aggregation latency in seconds',
     labelNames: ['collection', ...DEFAULT_LABELS],
-    buckets: config.buckets,
+    buckets: config.mongoBucket,
     registers: [registry],
 });
 
@@ -287,7 +288,7 @@ const httpConnectionDurationSeconds = new Histogram({
     name: 'http_connection_duration_seconds',
     help: 'HTTP connection duration in seconds',
     labelNames: [...DEFAULT_LABELS],
-    buckets: config.httpBuckets || [0.1, 0.5, 1, 5, 10, 30],
+    buckets: config.httpBuckets || [0.05, 0.1, 0.25, 0.5, 1, 5],
     registers: [registry],
 });
 
@@ -310,7 +311,7 @@ const httpClientRequestDurationSeconds = new Histogram({
     name: 'http_client_request_duration_seconds',
     help: 'HTTP client request duration in seconds',
     labelNames: ['host', 'method', 'status', ...DEFAULT_LABELS],
-    buckets: config.httpBuckets || [0.1, 0.5, 1, 2, 5, 10],
+    buckets: config.httpBuckets || [0.05, 0.1, 0.25, 0.5, 1, 5],
     registers: [registry],
 });
 
@@ -340,6 +341,42 @@ const networkIoErrorsTotal = new Counter({
     name: 'network_io_errors_total',
     help: 'Total network I/O errors',
     labelNames: ['type', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const circuitBreakerStateChangesTotal = new Counter({
+    name: 'circuit_breaker_state_changes_total',
+    help: 'Total circuit breaker state transitions (open/close/halfOpen)',
+    labelNames: ['route', 'state', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const circuitBreakerRejectionsTotal = new Counter({
+    name: 'circuit_breaker_rejections_total',
+    help: 'Total requests rejected by an open circuit breaker',
+    labelNames: ['route', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const circuitBreakerOpenGauge = new Gauge({
+    name: 'circuit_breaker_open',
+    help: '1 if circuit breaker is open, 0 otherwise',
+    labelNames: ['route', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const httpRequestTimeoutTotal = new Counter({
+    name: 'http_request_timeout_total',
+    help: 'Total requests that timed out or were aborted (408 server timeout, 499 client disconnect)',
+    labelNames: ['type', 'method', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const httpRequestTimeoutDurationSeconds = new Histogram({
+    name: 'http_request_timeout_duration_seconds',
+    help: 'Duration of requests that ended in a timeout or client disconnect',
+    labelNames: ['type', 'method', ...DEFAULT_LABELS],
+    buckets: [1, 5, 10, 15, 20, 25, 30, 35, 60],
     registers: [registry],
 });
 
@@ -483,6 +520,10 @@ async function initMetrics(options = {}) {
         trackRedis(config.redis.client);
     }
 
+    if (config.perf_metrics_enabled) {
+        initPerfHooksMetrics();
+    }
+
     if (config.mongoose) {
         config.mongoose.plugin(mongooseMetricsPlugin);
 
@@ -588,6 +629,11 @@ export {
     networkBytesReceivedTotal,
     networkBytesSentTotal,
     networkIoErrorsTotal,
+    circuitBreakerStateChangesTotal,
+    circuitBreakerRejectionsTotal,
+    circuitBreakerOpenGauge,
+    httpRequestTimeoutTotal,
+    httpRequestTimeoutDurationSeconds,
     rabbitmqPublished,
     rabbitmqConsumed,
     rabbitmqPublishDuration,

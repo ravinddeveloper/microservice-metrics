@@ -1,9 +1,13 @@
 export { initMetrics, Builder, CustomCounter, CustomGauge, CustomHistogram, CustomSummary, Platform } from './metrics.js';
 export { metricsMiddleware } from './middleware/http.js';
+export { requestTimeoutMiddleware, applyServerTimeouts } from './middleware/timeout.js';
 export { backPressureMiddleware } from './middleware/backPressure.js';
+export { getSnapshot } from './middleware/runtimeState.js';
 export { ipAllowlistMiddleware } from './middleware/security.js';
 export { trackDependency } from './instruments/dependency.js';
 export { trackOutboundDependencies } from './instruments/outbound.js';
+export { initCircuitBreaker, getCircuitBreakerRegistry } from './instruments/circuitBreaker.js';
+export { initPerfHooksMetrics, stopPerfHooksMetrics } from './instruments/perfHooks.js';
 export { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
 export { trackRabbitMQ } from './instruments/rabbitmq.js';
 export { trackRedis } from './instruments/redis.js';
