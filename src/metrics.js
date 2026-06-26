@@ -2,7 +2,7 @@ import client from 'prom-client';
 import config from './config.js';
 import { trackOutboundDependencies } from './instruments/outbound.js';
 import { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
-import { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUploadMetrics, GeneratePdf } from './instruments/platform.js';
+import { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUploadMetrics, GeneratePdf, PiscinaMetrics } from './instruments/platform.js';
 import os from 'os';
 import v8 from 'v8';
 import cron from 'node-cron';
@@ -24,7 +24,7 @@ const defaultLabelValues = {
 
 registry.setDefaultLabels(defaultLabelValues);
 
-const Platform = { ConnectorMetrics: new ConnectorMetrics(config), MicroflowMetrics: new MicroflowMetrics(config), DocumentDownloadMetrics: new DocumentDownloadMetrics(config), DocumentUploadMetrics : new DocumentUploadMetrics(config), GeneratePdf: new GeneratePdf(config)};
+const Platform = { ConnectorMetrics: new ConnectorMetrics(config), MicroflowMetrics: new MicroflowMetrics(config), DocumentDownloadMetrics: new DocumentDownloadMetrics(config), DocumentUploadMetrics : new DocumentUploadMetrics(config), GeneratePdf: new GeneratePdf(config), PiscinaMetrics: new PiscinaMetrics() };
 
 const httpRequestsTotal = new Counter({
     name: 'http_requests_total',
@@ -344,6 +344,42 @@ const networkIoErrorsTotal = new Counter({
     registers: [registry],
 });
 
+const circuitBreakerStateChangesTotal = new Counter({
+    name: 'circuit_breaker_state_changes_total',
+    help: 'Total circuit breaker state transitions (open/close/halfOpen)',
+    labelNames: ['route', 'state', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const circuitBreakerRejectionsTotal = new Counter({
+    name: 'circuit_breaker_rejections_total',
+    help: 'Total requests rejected by an open circuit breaker',
+    labelNames: ['route', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const circuitBreakerOpenGauge = new Gauge({
+    name: 'circuit_breaker_open',
+    help: '1 if circuit breaker is open, 0 otherwise',
+    labelNames: ['route', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const httpRequestTimeoutTotal = new Counter({
+    name: 'http_request_timeout_total',
+    help: 'Total requests that timed out or were aborted (408 server timeout, 499 client disconnect)',
+    labelNames: ['type', 'method', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const httpRequestTimeoutDurationSeconds = new Histogram({
+    name: 'http_request_timeout_duration_seconds',
+    help: 'Duration of requests that ended in a timeout or client disconnect',
+    labelNames: ['type', 'method', ...DEFAULT_LABELS],
+    buckets: [1, 5, 10, 15, 20, 25, 30, 35, 60],
+    registers: [registry],
+});
+
 const rabbitmqPublished = new Counter({
     name: 'rabbitmq_messages_published_total',
     help: 'Total messages published to RabbitMQ',
@@ -593,6 +629,11 @@ export {
     networkBytesReceivedTotal,
     networkBytesSentTotal,
     networkIoErrorsTotal,
+    circuitBreakerStateChangesTotal,
+    circuitBreakerRejectionsTotal,
+    circuitBreakerOpenGauge,
+    httpRequestTimeoutTotal,
+    httpRequestTimeoutDurationSeconds,
     rabbitmqPublished,
     rabbitmqConsumed,
     rabbitmqPublishDuration,

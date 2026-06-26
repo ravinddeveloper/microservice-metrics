@@ -61,6 +61,20 @@ let config = {
         enabled: false,
         client: null,
     },
+    requestTimeout: {
+        processTimeOutEnabled : false,
+        enabled: false,
+        timeoutMs: 60_000,
+        headersTimeoutMs: 60_000,
+    },
+    circuitBreaker: {
+        enabled: false,
+        timeout: 10_000,
+        errorThresholdPercentage: 50,
+        resetTimeout: 30_000,
+        volumeThreshold: 5,
+        maxHosts: 100,
+    },
 };
 
 export default config;

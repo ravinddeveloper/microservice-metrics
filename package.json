@@ -23,6 +23,7 @@
     "ip-range-check": "0.2.0",
     "mongoose": "8.24.0",
     "node-cron": "4.2.1",
+    "opossum": "10.0.0",
     "prom-client": "15.1.0"
   },
   "devDependencies": {
