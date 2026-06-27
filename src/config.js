@@ -75,6 +75,9 @@ let config = {
         volumeThreshold: 5,
         maxHosts: 100,
     },
+    disableAsyncNodeMetrics:false,
+    disableMicroflowMetrics:false,
+    disablePiscinaMetrics:false,
 };
 
 export default config;
