@@ -414,8 +414,10 @@ class PiscinaMetrics {
     #queueSizeGauge = null;
     #needsDrainGauge = null;
     #utilizationGauge = null;
+    #config = null;
 
-    constructor() {
+    constructor(config) {
+        this.#config = config;
         const histogramLabelNames = [...DEFAULT_LABELS, 'stat'];
 
         this.#runTimeGauge = registry.getSingleMetric('piscina_run_time_milliseconds') || new Gauge({
@@ -468,6 +470,8 @@ class PiscinaMetrics {
         });
     }
 
+    _disabled() { return this.#config?.disablePiscinaMetrics; }
+
     #setHistogramGauge(gauge, histogram) {
         if (!histogram || !gauge) return;
         const baseLabels = { service_name: config.serviceName, environment: config.environment, instance: config.instance };
@@ -480,6 +484,7 @@ class PiscinaMetrics {
     }
 
     collect(piscina) {
+        if (this._disabled()) return;
         if (!piscina) return;
         const baseLabels = { service_name: config.serviceName, environment: config.environment, instance: config.instance };
 
@@ -502,4 +507,126 @@ class PiscinaMetrics {
     get utilization() { return this.#utilizationGauge; }
 }
 
-export { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUploadMetrics, GeneratePdf, PiscinaMetrics };
+
+class AsyncNodeMetrics {
+    #producerPublished = null;
+    #producerFailed = null;
+    #producerRetry = null;
+    #consumerProcessed = null;
+    #consumerFailed = null;
+    #idempotencyHit = null;
+    #reconciliationFixed = null;
+    #endToEndDuration = null;
+    #pendingExecutions = null;
+    #config = null;
+    constructor(config = {}) {
+        this.#config = config;
+        this.#producerPublished = registry.getSingleMetric("async_node_microflow_producer_published_total") || new Counter({
+            name: "async_node_microflow_producer_published_total",
+            help: "Events successfully published to the async microflow queue",
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry]
+        });
+        this.#producerFailed = registry.getSingleMetric("async_node_microflow_producer_failed_total") || new Counter({
+            name: "async_node_microflow_producer_failed_total",
+            help: "Outbox insert or publish failures before retry",
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry]
+        });
+        this.#producerRetry = registry.getSingleMetric("async_node_microflow_producer_retry_total") || new Counter({
+            name: "async_node_microflow_producer_retry_total",
+            help: "Retry attempts by the producer retry scheduler",
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry]
+        });
+        this.#consumerProcessed = registry.getSingleMetric("async_node_microflow_consumer_processed_total") || new Counter({
+            name: "async_node_microflow_consumer_processed_total",
+            help: "Messages successfully acked by the async microflow consumer",
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry]
+        });
+        this.#consumerFailed = registry.getSingleMetric("async_node_microflow_consumer_failed_total") || new Counter({
+            name: "async_node_microflow_consumer_failed_total",
+            help: "Messages nacked by the async microflow consumer due to processing errors",
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry]
+        });
+        this.#idempotencyHit = registry.getSingleMetric("async_node_microflow_consumer_idempotency_hit_total") || new Counter({
+            name: "async_node_microflow_consumer_idempotency_hit_total",
+            help: "Duplicate deliveries suppressed by the EXECUTING-state idempotency check",
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry]
+        });
+        this.#reconciliationFixed = registry.getSingleMetric("async_node_microflow_reconciliation_fixed_total") || new Counter({
+            name: "async_node_microflow_reconciliation_fixed_total",
+            help: "Stuck EXECUTING records corrected by the reconciliation scheduler",
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry]
+        });
+        this.#endToEndDuration = registry.getSingleMetric("async_node_microflow_end_to_end_duration_seconds") || new Histogram({
+            name: "async_node_microflow_end_to_end_duration_seconds",
+            help: "Wall-clock time from async microflow initiation to terminal state in seconds",
+            labelNames: [...DEFAULT_LABELS],
+            buckets: [1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600],
+            registers: [registry]
+        });
+        this.#pendingExecutions = registry.getSingleMetric("async_node_microflow_pending_executions") || new Gauge({
+            name: "async_node_microflow_pending_executions",
+            help: "Current number of async microflow executions in EXECUTING state",
+            labelNames: [...DEFAULT_LABELS],
+            registers: [registry]
+        });
+    }
+    _disabled() { return this.#config.disableAsyncNodeMetrics || this.#config.disableMicroflowMetrics; }
+    producerPublished() {
+        if (this._disabled()) return;
+        if (this.#producerPublished) this.#producerPublished.inc();
+    }
+    producerFailed() {
+        if (this._disabled()) return;
+        if (this.#producerFailed) this.#producerFailed.inc();
+    }
+    producerRetry() {
+        if (this._disabled()) return;
+        if (this.#producerRetry) this.#producerRetry.inc();
+    }
+    consumerProcessed() {
+        if (this._disabled()) return;
+        if (this.#consumerProcessed) this.#consumerProcessed.inc();
+    }
+    consumerFailed() {
+        if (this._disabled()) return;
+        if (this.#consumerFailed) this.#consumerFailed.inc();
+    }
+    idempotencyHit() {
+        if (this._disabled()) return;
+        if (this.#idempotencyHit) this.#idempotencyHit.inc();
+    }
+    reconciliationFixed() {
+        if (this._disabled()) return;
+        if (this.#reconciliationFixed) this.#reconciliationFixed.inc();
+    }
+    endToEndDuration(createdAt) {
+        if (this._disabled() || !createdAt || !this.#endToEndDuration) return;
+        const durationSeconds = (Date.now() - new Date(createdAt).getTime()) / 1000;
+        this.#endToEndDuration.observe(durationSeconds);
+    }
+    pendingInc() {
+        if (this._disabled()) return;
+        if (this.#pendingExecutions) this.#pendingExecutions.inc();
+    }
+    pendingDec() {
+        if (this._disabled()) return;
+        if (this.#pendingExecutions) this.#pendingExecutions.dec();
+    }
+}
+
+export { 
+    ConnectorMetrics, 
+    MicroflowMetrics, 
+    DocumentDownloadMetrics, 
+    DocumentUploadMetrics, 
+    GeneratePdf, 
+    PiscinaMetrics,
+    AsyncNodeMetrics,
+ };

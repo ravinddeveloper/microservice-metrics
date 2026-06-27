@@ -2,7 +2,15 @@ import client from 'prom-client';
 import config from './config.js';
 import { trackOutboundDependencies } from './instruments/outbound.js';
 import { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
-import { ConnectorMetrics, MicroflowMetrics, DocumentDownloadMetrics, DocumentUploadMetrics, GeneratePdf, PiscinaMetrics } from './instruments/platform.js';
+import { 
+    ConnectorMetrics, 
+    MicroflowMetrics, 
+    DocumentDownloadMetrics, 
+    DocumentUploadMetrics, 
+    GeneratePdf, 
+    PiscinaMetrics,
+    AsyncNodeMetrics,
+ } from './instruments/platform.js';
 import os from 'os';
 import v8 from 'v8';
 import cron from 'node-cron';
@@ -24,7 +32,15 @@ const defaultLabelValues = {
 
 registry.setDefaultLabels(defaultLabelValues);
 
-const Platform = { ConnectorMetrics: new ConnectorMetrics(config), MicroflowMetrics: new MicroflowMetrics(config), DocumentDownloadMetrics: new DocumentDownloadMetrics(config), DocumentUploadMetrics : new DocumentUploadMetrics(config), GeneratePdf: new GeneratePdf(config), PiscinaMetrics: new PiscinaMetrics() };
+const Platform = { 
+    ConnectorMetrics: new ConnectorMetrics(config), 
+    MicroflowMetrics: new MicroflowMetrics(config), 
+    DocumentDownloadMetrics: new DocumentDownloadMetrics(config), 
+    DocumentUploadMetrics : new DocumentUploadMetrics(config), 
+    GeneratePdf: new GeneratePdf(config), 
+    PiscinaMetrics: new PiscinaMetrics(),
+    AsyncNodeMetrics: new AsyncNodeMetrics(config),
+ };
 
 const httpRequestsTotal = new Counter({
     name: 'http_requests_total',
@@ -474,6 +490,13 @@ const redisConnectionErrors = new Counter({
     registers: [registry],
 });
 
+const redisConnectionState = new Gauge({
+    name: 'redis_connection_state',
+    help: 'Redis connection state (0=disconnected, 1=connected)',
+    labelNames: [...DEFAULT_LABELS],
+    registers: [registry],
+});
+
 /**
  * @author Ravi N D
  * @param {Object} options
@@ -647,6 +670,7 @@ export {
     redisCacheHits,
     redisCacheMisses,
     redisConnectionErrors,
+    redisConnectionState,
     unhandledRejectionsTotal,
     uncaughtExceptionsTotal,
     vmTotalMemoryBytes,
