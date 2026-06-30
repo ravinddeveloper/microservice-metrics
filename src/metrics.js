@@ -529,6 +529,8 @@ async function initMetrics(options = {}) {
         fileTrack: { ...config.fileTrack, ...(options?.fileTrack || {}) },
         rabbitmq: { ...config.rabbitmq, ...(options?.rabbitmq || {}) },
         redis: { ...config.redis, ...(options?.redis || {}) },
+        requestTimeout: { ...config.requestTimeout, ...(options?.requestTimeout || {}) },
+        circuitBreaker: { ...config.circuitBreaker, ...(options?.circuitBreaker || {}) },
     });
 
     if (config.trackOutbound) {

@@ -415,6 +415,7 @@ class PiscinaMetrics {
     #needsDrainGauge = null;
     #utilizationGauge = null;
     #config = null;
+    #pools = new Set();
 
     constructor(config) {
         this.#config = config;
@@ -425,6 +426,11 @@ class PiscinaMetrics {
             help: 'Piscina worker pool task run time summary (average, mean, stddev, min, max, percentiles) in ms',
             labelNames: histogramLabelNames,
             registers: [registry],
+            collect: () => {
+                if (this.#pools) {
+                    this.#pools.forEach(pool => this.collect(pool));
+                }
+            }
         });
 
         this.#waitTimeGauge = registry.getSingleMetric('piscina_wait_time_milliseconds') || new Gauge({
@@ -432,6 +438,11 @@ class PiscinaMetrics {
             help: 'Piscina worker pool task queue wait time summary (average, mean, stddev, min, max, percentiles) in ms',
             labelNames: histogramLabelNames,
             registers: [registry],
+            collect: () => {
+                if (this.#pools) {
+                    this.#pools.forEach(pool => this.collect(pool));
+                }
+            }
         });
 
         this.#threadCountGauge = registry.getSingleMetric('piscina_thread_count') || new Gauge({
@@ -439,6 +450,11 @@ class PiscinaMetrics {
             help: 'Total number of Worker threads in the Piscina pool',
             labelNames: [...DEFAULT_LABELS],
             registers: [registry],
+            collect: () => {
+                if (this.#pools) {
+                    this.#pools.forEach(pool => this.collect(pool));
+                }
+            }
         });
 
         this.#idleThreadsGauge = registry.getSingleMetric('piscina_idle_threads') || new Gauge({
@@ -446,6 +462,11 @@ class PiscinaMetrics {
             help: 'Number of idle (ready) Worker threads not running any task',
             labelNames: [...DEFAULT_LABELS],
             registers: [registry],
+            collect: () => {
+                if (this.#pools) {
+                    this.#pools.forEach(pool => this.collect(pool));
+                }
+            }
         });
 
         this.#queueSizeGauge = registry.getSingleMetric('piscina_queue_size') || new Gauge({
@@ -453,6 +474,11 @@ class PiscinaMetrics {
             help: 'Number of tasks waiting to be assigned to a Worker thread',
             labelNames: [...DEFAULT_LABELS],
             registers: [registry],
+            collect: () => {
+                if (this.#pools) {
+                    this.#pools.forEach(pool => this.collect(pool));
+                }
+            }
         });
 
         this.#needsDrainGauge = registry.getSingleMetric('piscina_needs_drain') || new Gauge({
@@ -460,6 +486,11 @@ class PiscinaMetrics {
             help: 'Whether the pool capacity has been exceeded (1 = true, 0 = false)',
             labelNames: [...DEFAULT_LABELS],
             registers: [registry],
+            collect: () => {
+                if (this.#pools) {
+                    this.#pools.forEach(pool => this.collect(pool));
+                }
+            }
         });
 
         this.#utilizationGauge = registry.getSingleMetric('piscina_utilization_ratio') || new Gauge({
@@ -467,14 +498,47 @@ class PiscinaMetrics {
             help: 'Ratio of approximate total mean run time to total runtime capacity (0-1)',
             labelNames: [...DEFAULT_LABELS],
             registers: [registry],
+            collect: () => {
+                if (this.#pools) {
+                    this.#pools.forEach(pool => this.collect(pool));
+                }
+            }
         });
     }
 
     _disabled() { return this.#config?.disablePiscinaMetrics; }
 
+    monitor(piscina) {
+        if (!piscina) return;
+        this.#pools.add(piscina);
+    }
+
+    unmonitor(piscina) {
+        if (!piscina) return;
+        this.#pools.delete(piscina);
+    }
+
     #setHistogramGauge(gauge, histogram) {
         if (!histogram || !gauge) return;
         const baseLabels = { service_name: config.serviceName, environment: config.environment, instance: config.instance };
+        
+        if (typeof histogram.percentile === 'function') {
+            const scalarStats = ['average', 'mean', 'stddev', 'min', 'max'];
+            scalarStats.forEach(stat => {
+                if (histogram[stat] != null && !Number.isNaN(histogram[stat])) {
+                    gauge.set({ ...baseLabels, stat }, histogram[stat]);
+                }
+            });
+
+            HISTOGRAM_PERCENTILE_KEYS.forEach(key => {
+                const p = parseFloat(key.substring(1).replace('_', '.'));
+                if (!Number.isNaN(p)) {
+                    gauge.set({ ...baseLabels, stat: key }, histogram.percentile(p));
+                }
+            });
+            return;
+        }
+
         const scalarStats = ['average', 'mean', 'stddev', 'min', 'max'];
         [...scalarStats, ...HISTOGRAM_PERCENTILE_KEYS].forEach(stat => {
             if (histogram[stat] != null) {
@@ -487,9 +551,8 @@ class PiscinaMetrics {
         if (this._disabled()) return;
         if (!piscina) return;
         const baseLabels = { service_name: config.serviceName, environment: config.environment, instance: config.instance };
-
-        this.#setHistogramGauge(this.#runTimeGauge, piscina.runTime);
-        this.#setHistogramGauge(this.#waitTimeGauge, piscina.waitTime);
+        this.#setHistogramGauge(this.#runTimeGauge, piscina.histogram?.runTime || piscina.runTime);
+        this.#setHistogramGauge(this.#waitTimeGauge, piscina.histogram?.waitTime || piscina.waitTime);
 
         if (this.#threadCountGauge) this.#threadCountGauge.set(baseLabels, piscina.threads?.length ?? 0);
         if (this.#idleThreadsGauge) this.#idleThreadsGauge.set(baseLabels, piscina.idleWorkers ?? 0);

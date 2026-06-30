@@ -35,18 +35,17 @@ const mongooseMetricsPlugin = (schema) => {
 
     schema.pre(
         hooks,
-        function (next) {
+        function () {
             this._startTime = process.hrtime.bigint();
-            next();
         }
     );
 
     schema.post(
         hooks,
-        function (result, next) {
+        function (result) {
             try {
                 if (!this._startTime) {
-                    return next();
+                    return;
                 }
 
                 const durationSeconds = Number(process.hrtime.bigint() - this._startTime) / 1e9;
@@ -127,8 +126,6 @@ const mongooseMetricsPlugin = (schema) => {
                 }
             } catch (err) {
                 console.error("Error in mongoose metrics post hook:", err);
-            } finally {
-                next();
             }
         }
     );
@@ -172,8 +169,6 @@ const mongooseMetricsPlugin = (schema) => {
                 });
             } catch (err) {
                 console.error("Error in mongoose metrics post error hook:", err);
-            } finally {
-                next(error);
             }
         }
     );
