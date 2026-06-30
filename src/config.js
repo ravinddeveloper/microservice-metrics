@@ -63,7 +63,7 @@ let config = {
     },
     requestTimeout: {
         processTimeOutEnabled : false,
-        enabled: false,
+        enabled: true,
         timeoutMs: 60_000,
         headersTimeoutMs: 60_000,
     },

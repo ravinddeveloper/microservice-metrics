@@ -6,12 +6,12 @@ import {
 } from '../metrics.js';
 
 function getTimeoutMs() {
-    const val = parseInt(process.env['REQUEST_TIMEOUT_MS']);
+    const val = parseInt(process.env['METRICS.REQUEST_TIMEOUT_MS']);
     return isNaN(val) ? config.requestTimeout.timeoutMs : val;
 }
 
 function getHeadersTimeoutMs() {
-    const val = parseInt(process.env['HEADERS_TIMEOUT_MS']);
+    const val = parseInt(process.env['METRICS.HEADERS_TIMEOUT_MS']);
     return isNaN(val) ? config.requestTimeout.headersTimeoutMs : val;
 }
 
