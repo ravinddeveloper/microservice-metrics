@@ -13,6 +13,13 @@ import {
 
 let isTracking = false;
 
+const isConnectionAlive = (connection) => {
+    if (typeof connection.isConnected === 'function') return connection.isConnected();
+    if (connection._closing === false && connection.connection != null) return true;
+    if (connection.conn != null) return true;
+    return false;
+};
+
 const wrapChannel = (channel) => {
     const originalPublish = channel.publish.bind(channel);
     const originalConsume = channel.consume.bind(channel);
@@ -77,10 +84,13 @@ const wrapConnection = (connection) => {
         const channel = await originalCreateConfirmChannel();
         return wrapChannel(channel);
     };
-    connection.on('connect', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 1));
-    connection.on('disconnect', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 0));
-    connection.on('close', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 0));
-    connection.on('error', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 0));
+
+    if (typeof connection.on === 'function') {
+        connection.on('connect', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 1));
+        connection.on('disconnect', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 0));
+        connection.on('close', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 0));
+        connection.on('error', () => rabbitmqConnectionState.set({ ...defaultLabelValues }, 0));
+    }
 
     return connection;
 };
@@ -88,6 +98,8 @@ const wrapConnection = (connection) => {
 export const trackRabbitMQ = (amqplibOrConnection) => {
     if (isTracking) return amqplibOrConnection;
     isTracking = true;
+
+    rabbitmqConnectionState.set({ ...defaultLabelValues }, 0);
 
     if (typeof amqplibOrConnection.createChannel === 'function') {
         return wrapConnection(amqplibOrConnection);
@@ -98,6 +110,13 @@ export const trackRabbitMQ = (amqplibOrConnection) => {
         const connection = await originalConnect(...args);
         return wrapConnection(connection);
     };
+
+    if (typeof amqplibOrConnection.createChannel === 'undefined' && typeof amqplibOrConnection._currentConnection !== 'undefined') {
+        const existingConn = amqplibOrConnection._currentConnection || amqplibOrConnection.connection;
+        if (existingConn && isConnectionAlive(existingConn)) {
+            rabbitmqConnectionState.set({ ...defaultLabelValues }, 1);
+        }
+    }
 
     return amqplibOrConnection;
 };

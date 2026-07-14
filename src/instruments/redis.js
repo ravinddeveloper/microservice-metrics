@@ -71,6 +71,8 @@ export const trackRedis = (client, options = {}) => {
         return client;
     }
 
+    redisConnectionState.set({ ...defaultLabelValues }, 0);
+
     const readCommands = options.extraReadCommands?.length
         ? new Set([...READ_COMMANDS, ...options.extraReadCommands.map(c => c.toLowerCase())])
         : READ_COMMANDS;
@@ -82,17 +84,26 @@ export const trackRedis = (client, options = {}) => {
         if (typeof client.on === 'function') {
             const setConnected = () => redisConnectionState.set({ ...defaultLabelValues }, 1);
             const setDisconnected = () => redisConnectionState.set({ ...defaultLabelValues }, 0);
-            if (client.isOpen || client.status === 'ready') {
+
+            const alreadyConnected = client.isOpen === true
+                || client.status === 'ready'
+                || client.status === 'connect'
+                || (typeof client.isReady === 'boolean' && client.isReady);
+
+            if (alreadyConnected) {
                 setConnected();
-            } else {
-                setDisconnected();
             }
 
-            client.on('connect', setConnected);
-            client.on('ready', setConnected);
-            client.on('end', setDisconnected);
-            client.on('close', setDisconnected);
-            client.on('error', setDisconnected);
+            const alreadyListening = typeof client.listenerCount === 'function'
+                && client.listenerCount('ready') > 0;
+
+            if (!alreadyListening) {
+                client.on('connect', setConnected);
+                client.on('ready', setConnected);
+                client.on('end', setDisconnected);
+                client.on('close', setDisconnected);
+                client.on('error', setDisconnected);
+            }
         }
         
         target.sendCommand = async function (command, ...rest) {
