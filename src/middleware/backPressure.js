@@ -1,6 +1,6 @@
 import v8 from 'v8';
 import fs from 'fs/promises';
-import { performance } from 'perf_hooks';
+import { performance, monitorEventLoopDelay } from 'perf_hooks';
 import { registry } from '../metrics.js';
 import config from '../config.js';
 import client from 'prom-client';
@@ -14,6 +14,7 @@ class BackPressureSampler {
     #cpuThreshold;
     #heapThreshold;
     #eluThreshold;
+    #lagThresholdMs;
     #activeRequestsThreshold;
     #containerMemoryThreshold;
     #p95LatencyThreshold;
@@ -22,6 +23,7 @@ class BackPressureSampler {
     #cooldownTicks;
 
     #eluPrev = null;
+    #lagMonitor = null;
     #overloaded = false;
     #lastReason = null;
     #episodeRejections = 0;
@@ -37,6 +39,7 @@ class BackPressureSampler {
     #cpuGauge = null;
     #heapGauge = null;
     #eluGauge = null;
+    #lagGauge = null;
     #overloadedGauge = null;
     #containerMemGauge = null;
     #activeReqGauge = null;
@@ -46,6 +49,7 @@ class BackPressureSampler {
         this.#cpuThreshold = cfg.cpuThreshold ?? 85;
         this.#heapThreshold = cfg.heapThreshold ?? 80;
         this.#eluThreshold = cfg.eventLoopUtilizationThreshold ?? 0.85;
+        this.#lagThresholdMs = cfg.lagThresholdMs ?? Infinity;
         this.#activeRequestsThreshold = cfg.activeRequestsThreshold ?? Infinity;
         this.#containerMemoryThreshold = cfg.containerMemoryThreshold ?? 90;
         this.#p95LatencyThreshold = cfg.p95LatencyThreshold ?? Infinity;
@@ -54,6 +58,9 @@ class BackPressureSampler {
         this.#cooldownTicks = cfg.cooldownTicks ?? 2;
 
         this.#eluPrev = performance.eventLoopUtilization();
+
+        this.#lagMonitor = monitorEventLoopDelay({ resolution: 20 });
+        this.#lagMonitor.enable();
 
         this.#episodeHistogram = registry.getSingleMetric('back_pressure_episode_rejections') || new Histogram({
             name: 'back_pressure_episode_rejections',
@@ -77,6 +84,12 @@ class BackPressureSampler {
         this.#eluGauge = registry.getSingleMetric('back_pressure_event_loop_utilization') || new Gauge({
             name: 'back_pressure_event_loop_utilization',
             help: 'Event loop utilization ratio (0-1) per sample interval — replaces raw lag ms',
+            registers: [registry],
+        });
+
+        this.#lagGauge = registry.getSingleMetric('back_pressure_event_loop_lag_p99_ms') || new Gauge({
+            name: 'back_pressure_event_loop_lag_p99_ms',
+            help: 'P99 event loop lag in milliseconds (monitorEventLoopDelay, reset each interval)',
             registers: [registry],
         });
 
@@ -130,6 +143,12 @@ class BackPressureSampler {
         return delta.utilization;
     }
 
+    #sampleLagP99Ms() {
+        const lagMs = this.#lagMonitor?.percentile(99) / 1e6;
+        this.#lagMonitor?.reset();
+        return lagMs;
+    }
+
     async #updateContainerMemory() {
         if (!this.#cgroupSupported) return;
         try {
@@ -162,11 +181,12 @@ class BackPressureSampler {
         }
     }
 
-    #isAboveRecoveryThreshold(cpu, heap, elu, containerMem, activeReqs, p95) {
+    #isAboveRecoveryThreshold(cpu, heap, elu, lagP99, containerMem, activeReqs, p95) {
         const h = this.#recoveryHeadroom;
         if (heap > this.#heapThreshold * h) return true;
         if (cpu > this.#cpuThreshold * h) return true;
         if (elu > this.#eluThreshold * h) return true;
+        if (this.#lagThresholdMs < Infinity && lagP99 > this.#lagThresholdMs * h) return true;
         if (containerMem > 0 && containerMem > this.#containerMemoryThreshold * h) return true;
         if (this.#activeRequestsThreshold < Infinity && activeReqs > this.#activeRequestsThreshold * h) return true;
         if (this.#p95LatencyThreshold < Infinity && p95 > this.#p95LatencyThreshold * h) return true;
@@ -177,6 +197,7 @@ class BackPressureSampler {
         const cpu = getCpuPercent();
         const heap = this.#sampleHeap();
         const elu = this.#sampleElu();
+        const lagP99 = this.#sampleLagP99Ms();
         const activeReqs = getActiveRequests();
         const p95 = getP95Latency();
         const containerMem = this.#containerMemoryPercent;
@@ -184,6 +205,7 @@ class BackPressureSampler {
         this.#cpuGauge.set(parseFloat(cpu.toFixed(2)));
         this.#heapGauge.set(parseFloat(heap.toFixed(2)));
         this.#eluGauge.set(parseFloat(elu.toFixed(4)));
+        this.#lagGauge.set(parseFloat(lagP99.toFixed(2)));
         this.#containerMemGauge.set(parseFloat(containerMem.toFixed(2)));
         this.#activeReqGauge.set(activeReqs);
         this.#p95LatencyGauge.set(parseFloat(p95.toFixed(2)));
@@ -195,7 +217,7 @@ class BackPressureSampler {
             breachReason = 'BP_01_H';
         } else if (cpu > this.#cpuThreshold) {
             breachReason = 'BP_02_C';
-        } else if (elu > this.#eluThreshold) {
+        } else if (elu > this.#eluThreshold && (this.#lagThresholdMs < Infinity && lagP99 > this.#lagThresholdMs)) {
             breachReason = 'BP_03_EL';
         } else if (containerMem > 0 && containerMem > this.#containerMemoryThreshold) {
             breachReason = 'BP_04_CM';
@@ -210,7 +232,7 @@ class BackPressureSampler {
             this.#lastReason = breachReason;
             this.#cleanTickCount = 0;
         } else if (wasOverloaded) {
-            if (!this.#isAboveRecoveryThreshold(cpu, heap, elu, containerMem, activeReqs, p95)) {
+            if (!this.#isAboveRecoveryThreshold(cpu, heap, elu, lagP99, containerMem, activeReqs, p95)) {
                 this.#cleanTickCount++;
                 if (this.#cleanTickCount >= this.#cooldownTicks) {
                     this.#overloaded = false;
@@ -239,6 +261,7 @@ class BackPressureSampler {
     stop() {
         clearInterval(this.#timer);
         clearInterval(this.#memTimer);
+        this.#lagMonitor?.disable();
     }
 }
 

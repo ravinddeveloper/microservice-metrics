@@ -67,7 +67,7 @@ export const trackRedis = (client, options = {}) => {
     const originalSendCommand = target.sendCommand;
 
     if (!originalSendCommand) {
-        console.warn('trackRedis: client does not have a sendCommand method – skipping');
+        console.warn('trackRedis: client does not have a sendCommand method - skipping');
         return client;
     }
 
