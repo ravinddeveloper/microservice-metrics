@@ -8,7 +8,7 @@ import { getCpuPercent, getActiveRequests, getP95Latency } from './runtimeState.
 
 const { Histogram, Gauge } = client;
 
-const EXEMPT_PATHS = new Set(['/metrics', '/health', '/ready', '/v1/health-check']);
+const EXEMPT_PATHS = new Set(['/metrics', '/health', '/ready', '/v1/health-check', '/v1/metrics']);
 
 class BackPressureSampler {
     #cpuThreshold;

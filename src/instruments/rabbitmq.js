@@ -99,7 +99,7 @@ export const trackRabbitMQ = (amqplibOrConnection) => {
     if (isTracking) return amqplibOrConnection;
     isTracking = true;
 
-    rabbitmqConnectionState.set({ ...defaultLabelValues }, 0);
+    rabbitmqConnectionState.set({ ...defaultLabelValues }, 1);
 
     if (typeof amqplibOrConnection.createChannel === 'function') {
         return wrapConnection(amqplibOrConnection);
