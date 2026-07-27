@@ -12,7 +12,7 @@ let config = {
     platformBuckets: [0.05, 0.1, 0.25, 0.5, 1, 5],
     mongoBucket: [0.05, 0.1, 0.25, 0.5, 1, 5],
     endpointAllowlist: [],
-    endpointDenylist: ["GET:/favicon.ico", "GET:/", "GET:/health", "GET:/ready", "GET:/metrics", "GET:/v1/health-check"],
+    endpointDenylist: ["GET:/favicon.ico", "GET:/", "GET:/health", "GET:/ready", "GET:/metrics", "GET:/v1/health-check", "GET:/v1/metrics"],
     slowThresholdSeconds: 3,
     sloThresholdMs: parseInt(process.env.DEFAULT_API_RESPONSE_THRESHOLD) || null,
     resetAfterScrape: false,

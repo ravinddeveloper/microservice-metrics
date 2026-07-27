@@ -38,18 +38,15 @@ const normalizeCommand = (command, rest) => {
 };
 
 const getKeyPrefix = (cmd, args) => {
-    if (['mget', 'mset', 'del', 'hmget', 'msetnx'].includes(cmd)) {
-        return cmd;
-    }
-
     let key = Array.isArray(args) ? args.flat()[0] : args;
     if (!key || typeof key !== 'string') return 'unknown';
-
     const match = key.match(/^\{([^}]+)\}/);
     if (match) return match[1];
-
-    const parts = key.split(':');
-    return parts.length > 1 ? parts[0] : key;
+    const underscoreIndex = key.indexOf('_');
+    if (underscoreIndex > 0) return key.substring(0, underscoreIndex + 1);
+    const colonIndex = key.indexOf(':');
+    if (colonIndex > 0) return key.substring(0, colonIndex);
+    return key;
 };
 
 const isCacheHit = (result) => {
@@ -71,7 +68,7 @@ export const trackRedis = (client, options = {}) => {
         return client;
     }
 
-    redisConnectionState.set({ ...defaultLabelValues }, 0);
+    redisConnectionState.set({ ...defaultLabelValues }, 1);
 
     const readCommands = options.extraReadCommands?.length
         ? new Set([...READ_COMMANDS, ...options.extraReadCommands.map(c => c.toLowerCase())])
