@@ -25,12 +25,28 @@ const registry = new Registry();
 const DEFAULT_LABELS = ['service_name', 'environment', 'instance'];
 
 const defaultLabelValues = {
-    service_name: config.serviceName,
-    environment: config.environment,
-    instance: config.instance,
+    service_name: config.serviceName || 'unknown',
+    environment: config.environment || '',
+    instance: config.instance || 'unknown',
 };
 
-registry.setDefaultLabels(defaultLabelValues);
+export const sanitizeLabels = (labels = {}) => {
+    const clean = { ...defaultLabelValues, ...labels };
+    for (const key of Object.keys(clean)) {
+        if (clean[key] === null || clean[key] === undefined) {
+            clean[key] = '';
+        } else {
+            clean[key] = String(clean[key]);
+        }
+    }
+    return clean;
+};
+
+try {
+    registry.setDefaultLabels(defaultLabelValues);
+} catch (err) {
+    console.error('Failed to set default labels on registry:', err);
+}
 
 const Platform = { 
     ConnectorMetrics: new ConnectorMetrics(config), 
@@ -564,11 +580,22 @@ async function initMetrics(options = {}) {
         mongooseDefaultMetricsPlugin();
     }
 
-    defaultLabelValues.service_name = config.serviceName;
-    defaultLabelValues.environment = config.environment;
-    defaultLabelValues.instance = config.instance;
+    defaultLabelValues.service_name = config.serviceName || 'unknown';
+    defaultLabelValues.environment = config.environment || '';
+    defaultLabelValues.instance = config.instance || 'unknown';
 
-    registry.setDefaultLabels(defaultLabelValues);
+    try {
+        registry.setDefaultLabels(defaultLabelValues);
+    } catch (err) {
+        console.error('Failed to update default labels on registry:', err);
+    }
+
+    try {
+        redisConnectionState.set(sanitizeLabels(), 1);
+    } catch (err) {}
+    try {
+        rabbitmqConnectionState.set(sanitizeLabels(), 1);
+    } catch (err) {}
 
     if (config.includeSystemMetrics) {
         collectDefaultMetrics({ register: registry, labels: defaultLabelValues });

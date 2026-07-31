@@ -6,6 +6,7 @@ import {
     redisConnectionErrors,
     redisConnectionState,
     defaultLabelValues,
+    sanitizeLabels,
 } from '../metrics.js';
 
 const READ_COMMANDS = new Set([
@@ -58,7 +59,12 @@ const isCacheHit = (result) => {
 };
 
 export const trackRedis = (client, options = {}) => {
+    try {
+        redisConnectionState.set(sanitizeLabels(), 1);
+    } catch (err) { }
+
     if (client[WRAPPED]) return client;
+
     const proto = Object.getPrototypeOf(client);
     const target = (proto && typeof proto.sendCommand === 'function') ? proto : client;
     const originalSendCommand = target.sendCommand;
@@ -67,8 +73,6 @@ export const trackRedis = (client, options = {}) => {
         console.warn('trackRedis: client does not have a sendCommand method - skipping');
         return client;
     }
-
-    redisConnectionState.set({ ...defaultLabelValues }, 1);
 
     const readCommands = options.extraReadCommands?.length
         ? new Set([...READ_COMMANDS, ...options.extraReadCommands.map(c => c.toLowerCase())])
@@ -79,8 +83,12 @@ export const trackRedis = (client, options = {}) => {
         target[WRAPPED] = true;
 
         if (typeof client.on === 'function') {
-            const setConnected = () => redisConnectionState.set({ ...defaultLabelValues }, 1);
-            const setDisconnected = () => redisConnectionState.set({ ...defaultLabelValues }, 0);
+            const setConnected = () => {
+                try { redisConnectionState.set(sanitizeLabels(), 1); } catch (e) { }
+            };
+            const setDisconnected = () => {
+                try { redisConnectionState.set(sanitizeLabels(), 0); } catch (e) { }
+            };
 
             const alreadyConnected = client.isOpen === true
                 || client.status === 'ready'
@@ -102,19 +110,19 @@ export const trackRedis = (client, options = {}) => {
                 client.on('error', setDisconnected);
             }
         }
-        
+
         target.sendCommand = async function (command, ...rest) {
             const { cmd, args } = normalizeCommand(command, rest);
             const start = process.hrtime.bigint();
             const baseLabels = { command: cmd, ...defaultLabelValues };
-            
+
             const safeInc = (metric, labels) => {
-                try { metric.inc(labels); } catch (err) {
+                try { metric.inc(sanitizeLabels(labels)); } catch (err) {
                     console.error(`trackRedis: metric increment failed`, err);
                 }
             };
             const safeObserve = (metric, labels, value) => {
-                try { metric.observe(labels, value); } catch (err) {
+                try { metric.observe(sanitizeLabels(labels), value); } catch (err) {
                     console.error(`trackRedis: metric observe failed`, err);
                 }
             };
