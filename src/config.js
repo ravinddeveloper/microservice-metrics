@@ -2,7 +2,7 @@ import os from 'os';
 
 let config = {
     serviceName: os.hostname(),
-    environment: null,
+    environment: os.hostname(),
     instance: os.hostname(),
     metricsPort: null,
     includeSystemMetrics: true,
@@ -31,7 +31,7 @@ let config = {
     disableMicroflowMetrics: false,
     maxMetricsSizeMb: 20,
     httpRequestP90Metics: false,
-    perf_metrics_enabled : true,
+    perf_metrics_enabled: true,
     backPressure: {
         enabled: false,
         cpuThreshold: 100,
@@ -40,7 +40,7 @@ let config = {
         activeRequestsThreshold: 500, // 500 requests
         containerMemoryThreshold: 90, // 90% memory
         p95LatencyThreshold: 2000, // 2 seconds
-        p95LatencyEnabled : false,
+        p95LatencyEnabled: false,
         sampleIntervalMs: 1000,
         exemptPaths: [],
     },
@@ -62,7 +62,7 @@ let config = {
         client: null,
     },
     requestTimeout: {
-        processTimeOutEnabled : false,
+        processTimeOutEnabled: false,
         enabled: true,
         timeoutMs: 60_000,
         headersTimeoutMs: 60_000,
@@ -75,9 +75,9 @@ let config = {
         volumeThreshold: 5,
         maxHosts: 100,
     },
-    disableAsyncNodeMetrics:false,
-    disableMicroflowMetrics:false,
-    disablePiscinaMetrics:false,
+    disableAsyncNodeMetrics: false,
+    disableMicroflowMetrics: false,
+    disablePiscinaMetrics: false,
 };
 
 export default config;
