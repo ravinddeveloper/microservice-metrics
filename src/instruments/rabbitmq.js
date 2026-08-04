@@ -12,7 +12,9 @@ import {
 } from '../metrics.js';
 
 
-let isTracking = false;
+const trackedModules = new WeakSet();
+const trackedConnections = new WeakSet();
+const CHANNEL_WRAPPED = Symbol('rabbitmqChannelWrapped');
 
 const isConnectionAlive = (connection) => {
     if (typeof connection.isConnected === 'function') return connection.isConnected();
@@ -22,6 +24,9 @@ const isConnectionAlive = (connection) => {
 };
 
 const wrapChannel = (channel) => {
+    if (channel[CHANNEL_WRAPPED]) return channel;
+    channel[CHANNEL_WRAPPED] = true;
+
     const originalPublish = channel.publish.bind(channel);
     const originalConsume = channel.consume.bind(channel);
 
@@ -71,7 +76,10 @@ const wrapChannel = (channel) => {
 };
 
 const wrapConnection = (connection) => {
-    try { rabbitmqConnectionState.set(sanitizeLabels(), 1); } catch (e) {}
+    if (trackedConnections.has(connection)) return connection;
+    trackedConnections.add(connection);
+
+    try { rabbitmqConnectionState.set(sanitizeLabels(), 1); } catch (e) { }
 
     const originalCreateChannel = connection.createChannel.bind(connection);
     const originalCreateConfirmChannel = connection.createConfirmChannel.bind(connection);
@@ -87,36 +95,32 @@ const wrapConnection = (connection) => {
     };
 
     if (typeof connection.on === 'function') {
-        connection.on('connect', () => { try { rabbitmqConnectionState.set(sanitizeLabels(), 1); } catch (e) {} });
-        connection.on('disconnect', () => { try { rabbitmqConnectionState.set(sanitizeLabels(), 0); } catch (e) {} });
-        connection.on('close', () => { try { rabbitmqConnectionState.set(sanitizeLabels(), 0); } catch (e) {} });
-        connection.on('error', () => { try { rabbitmqConnectionState.set(sanitizeLabels(), 0); } catch (e) {} });
+        connection.on('connect', () => { try { rabbitmqConnectionState.set(sanitizeLabels(), 1); } catch (e) { } });
+        connection.on('disconnect', () => { try { rabbitmqConnectionState.set(sanitizeLabels(), 0); } catch (e) { } });
+        connection.on('close', () => { try { rabbitmqConnectionState.set(sanitizeLabels(), 0); } catch (e) { } });
+        connection.on('error', () => { try { rabbitmqConnectionState.set(sanitizeLabels(), 0); } catch (e) { } });
     }
 
     return connection;
 };
 
 export const trackRabbitMQ = (amqplibOrConnection) => {
-    try { rabbitmqConnectionState.set(sanitizeLabels(), 1); } catch (e) {}
-
-    if (isTracking) return amqplibOrConnection;
-    isTracking = true;
-
     if (typeof amqplibOrConnection.createChannel === 'function') {
         return wrapConnection(amqplibOrConnection);
     }
+    if (!trackedModules.has(amqplibOrConnection)) {
+        trackedModules.add(amqplibOrConnection);
 
-    const originalConnect = amqplibOrConnection.connect.bind(amqplibOrConnection);
-    amqplibOrConnection.connect = async (...args) => {
-        const connection = await originalConnect(...args);
-        return wrapConnection(connection);
-    };
+        const originalConnect = amqplibOrConnection.connect.bind(amqplibOrConnection);
+        amqplibOrConnection.connect = async (...args) => {
+            const connection = await originalConnect(...args);
+            return wrapConnection(connection);
+        };
+    }
 
-    if (typeof amqplibOrConnection.createChannel === 'undefined' && typeof amqplibOrConnection._currentConnection !== 'undefined') {
-        const existingConn = amqplibOrConnection._currentConnection || amqplibOrConnection.connection;
-        if (existingConn && isConnectionAlive(existingConn)) {
-            try { rabbitmqConnectionState.set(sanitizeLabels(), 1); } catch (e) {}
-        }
+    const existingConn = amqplibOrConnection._currentConnection || amqplibOrConnection.connection;
+    if (existingConn && isConnectionAlive(existingConn)) {
+        wrapConnection(existingConn);
     }
 
     return amqplibOrConnection;
