@@ -50,13 +50,13 @@ const getKeyPrefix = (args) => {
     if (underscoreIndex > 0) return key.substring(0, underscoreIndex + 1);
     const colonIndex = key.indexOf(':');
     if (colonIndex > 0) return key.substring(0, colonIndex);
-    return key;
+    return key.length > 30 ? key.substring(0, 30) : key;
 };
 
 const isCacheHit = (result) => {
     if (result === null || result === undefined) return false;
     if (Array.isArray(result)) {
-        return result.some(v => v !== null && v !== undefined && v !== '');
+        return result.some(v => v !== null && v !== undefined);
     }
     return true;
 };
@@ -77,15 +77,20 @@ export const trackRedis = (client, options = {}) => {
         typeof client?.nodes === 'function';
 
     if (isCluster) {
+        let nodesWrapped = false;
         const wrapNodes = () => {
+            if (nodesWrapped) return;
+            nodesWrapped = true;
             const nodes = typeof client.nodes === 'function' ? client.nodes('master') : [];
             nodes.forEach(node => { if (!node[WRAPPED]) trackRedis(node, options); });
         };
-        if (typeof client.on === 'function') {
+
+        if (client.isReady || client.status === 'ready') {
+            wrapNodes();
+        } else if (typeof client.on === 'function') {
             client.once('ready', wrapNodes);
         }
-        wrapNodes();
-        client[WRAPPED] = true;
+
         return client;
     }
 
@@ -128,7 +133,6 @@ export const trackRedis = (client, options = {}) => {
             client.on('ready', setConnected);
             client.on('end', setDisconnected);
             client.on('close', setDisconnected);
-            client.on('error', setDisconnected);
 
             client[EVENTS_REGISTERED] = true;
         }
@@ -137,16 +141,13 @@ export const trackRedis = (client, options = {}) => {
     client.sendCommand = async function (command, ...rest) {
         const { cmd, args } = normalizeCommand(command, rest);
         const start = process.hrtime.bigint();
-        const baseLabels = { command: cmd, ...defaultLabelValues };
+        const baseLabels = { ...defaultLabelValues, command: cmd };
 
         try {
             const result = await originalSendCommand.call(this, command, ...rest);
 
             if (readCommands.has(cmd)) {
-                const prefixLabels = {
-                    key_prefix: getKeyPrefix(args),
-                    ...defaultLabelValues,
-                };
+                const prefixLabels = { ...defaultLabelValues, key_prefix: getKeyPrefix(args) };
                 if (isCacheHit(result)) {
                     safeInc(redisCacheHits, prefixLabels);
                 } else {
@@ -157,8 +158,8 @@ export const trackRedis = (client, options = {}) => {
             return result;
         } catch (err) {
             safeInc(redisConnectionErrors, {
-                error_type: err?.name || err?.code || 'UnknownError',
                 ...defaultLabelValues,
+                error_type: err?.name || err?.code || 'UnknownError',
             });
 
             throw err;
