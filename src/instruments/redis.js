@@ -16,6 +16,7 @@ const READ_COMMANDS = new Set([
 ]);
 
 const WRAPPED = Symbol('redisWrapped');
+const EVENTS_REGISTERED = Symbol('redisEventsRegistered');
 
 const normalizeCommand = (command, rest) => {
     if (Array.isArray(command)) {
@@ -38,8 +39,10 @@ const normalizeCommand = (command, rest) => {
     };
 };
 
-const getKeyPrefix = (cmd, args) => {
-    let key = Array.isArray(args) ? args.flat()[0] : args;
+const getKeyPrefix = (args) => {
+    let key = Array.isArray(args)
+        ? (Array.isArray(args[0]) ? args[0][0] : args[0])
+        : args;
     if (!key || typeof key !== 'string') return 'unknown';
     const match = key.match(/^\{([^}]+)\}/);
     if (match) return match[1];
@@ -58,22 +61,27 @@ const isCacheHit = (result) => {
     return true;
 };
 
-export const trackRedis = (client, options = {}) => {
-    try {
-        redisConnectionState.set(sanitizeLabels(), 1);
-    } catch (err) { }
+const safeInc = (metric, labels) => {
+    try { metric.inc(sanitizeLabels(labels)); } catch (err) { }
+};
+const safeObserve = (metric, labels, value) => {
+    try { metric.observe(sanitizeLabels(labels), value); } catch (err) { }
+};
 
+export const trackRedis = (client, options = {}) => {
     if (client[WRAPPED]) return client;
     client[WRAPPED] = true;
-
     const proto = Object.getPrototypeOf(client);
-    const protoHasSendCommand = proto && typeof proto.sendCommand === 'function';
-    const originalSendCommand = protoHasSendCommand
-        ? proto.sendCommand
-        : client.sendCommand;
+    const originalSendCommand =
+        (Object.prototype.hasOwnProperty.call(client, 'sendCommand') && typeof client.sendCommand === 'function')
+            ? client.sendCommand
+            : (proto && typeof proto.sendCommand === 'function')
+                ? proto.sendCommand
+                : null;
 
     if (!originalSendCommand) {
         console.warn('trackRedis: client does not have a sendCommand method - skipping');
+        delete client[WRAPPED];
         return client;
     }
 
@@ -89,24 +97,23 @@ export const trackRedis = (client, options = {}) => {
             try { redisConnectionState.set(sanitizeLabels(), 0); } catch (e) { }
         };
 
-        const alreadyConnected = client.isOpen === true
-            || client.status === 'ready'
-            || client.status === 'connect'
-            || (typeof client.isReady === 'boolean' && client.isReady);
+        const alreadyConnected =
+            client.isReady === true ||
+            client.isOpen === true ||
+            client.status === 'ready';
 
         if (alreadyConnected) {
             setConnected();
         }
 
-        const alreadyListening = typeof client.listenerCount === 'function'
-            && client.listenerCount('ready') > 0;
-
-        if (!alreadyListening) {
+        if (!client[EVENTS_REGISTERED]) {
             client.on('connect', setConnected);
             client.on('ready', setConnected);
-            client.on('reconnecting', setConnected);
             client.on('end', setDisconnected);
             client.on('close', setDisconnected);
+            client.on('error', setDisconnected);
+
+            client[EVENTS_REGISTERED] = true;
         }
     }
 
@@ -115,27 +122,12 @@ export const trackRedis = (client, options = {}) => {
         const start = process.hrtime.bigint();
         const baseLabels = { command: cmd, ...defaultLabelValues };
 
-        const safeInc = (metric, labels) => {
-            try { metric.inc(sanitizeLabels(labels)); } catch (err) {
-                console.error(`trackRedis: metric increment failed`, err);
-            }
-        };
-        const safeObserve = (metric, labels, value) => {
-            try { metric.observe(sanitizeLabels(labels), value); } catch (err) {
-                console.error(`trackRedis: metric observe failed`, err);
-            }
-        };
-
         try {
             const result = await originalSendCommand.call(this, command, ...rest);
-            const duration = Number(process.hrtime.bigint() - start) / 1e9;
-
-            safeInc(redisCommands, baseLabels);
-            safeObserve(redisCommandDuration, baseLabels, duration);
 
             if (readCommands.has(cmd)) {
                 const prefixLabels = {
-                    key_prefix: getKeyPrefix(cmd, args),
+                    key_prefix: getKeyPrefix(args),
                     ...defaultLabelValues,
                 };
                 if (isCacheHit(result)) {
@@ -147,15 +139,16 @@ export const trackRedis = (client, options = {}) => {
 
             return result;
         } catch (err) {
-            const duration = Number(process.hrtime.bigint() - start) / 1e9;
-            safeInc(redisCommands, baseLabels);
-            safeObserve(redisCommandDuration, baseLabels, duration);
             safeInc(redisConnectionErrors, {
                 error_type: err?.name || err?.code || 'UnknownError',
                 ...defaultLabelValues,
             });
 
             throw err;
+        } finally {
+            const duration = Number(process.hrtime.bigint() - start) / 1e9;
+            safeInc(redisCommands, baseLabels);
+            safeObserve(redisCommandDuration, baseLabels, duration);
         }
     };
 

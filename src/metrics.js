@@ -470,6 +470,20 @@ const rabbitmqRedeliveries = new Counter({
     registers: [registry],
 });
 
+const rabbitmqActiveConsumers = new Gauge({
+    name: 'rabbitmq_active_consumers',
+    help: 'Number of active consumer registrations per queue',
+    labelNames: ['queue', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
+const rabbitmqConsumeErrors = new Counter({
+    name: 'rabbitmq_consume_errors_total',
+    help: 'Total errors thrown by RabbitMQ message handlers',
+    labelNames: ['queue', 'error_type', ...DEFAULT_LABELS],
+    registers: [registry],
+});
+
 const redisCommands = new Counter({
     name: 'redis_commands_total',
     help: 'Total Redis commands executed',
@@ -694,6 +708,8 @@ export {
     rabbitmqChannelErrors,
     rabbitmqConnectionState,
     rabbitmqRedeliveries,
+    rabbitmqActiveConsumers,
+    rabbitmqConsumeErrors,
     redisCommands,
     redisCommandDuration,
     redisCacheHits,
