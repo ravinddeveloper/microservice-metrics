@@ -69,9 +69,18 @@ const safeObserve = (metric, labels, value) => {
 };
 
 export const trackRedis = (client, options = {}) => {
+    if (!client) return client;
     if (client[WRAPPED]) return client;
+    const target = client._self || client;
+    if (target[WRAPPED]) {
+        client[WRAPPED] = true;
+        return client;
+    }
+
     client[WRAPPED] = true;
-    const proto = Object.getPrototypeOf(client);
+    target[WRAPPED] = true;
+
+    const proto = Object.getPrototypeOf(target);
     const isCluster =
         client?.constructor?.name === 'RedisCluster' ||
         typeof client?.nodes === 'function';
@@ -95,8 +104,8 @@ export const trackRedis = (client, options = {}) => {
     }
 
     const originalSendCommand =
-        (Object.prototype.hasOwnProperty.call(client, 'sendCommand') && typeof client.sendCommand === 'function')
-            ? client.sendCommand
+        (Object.prototype.hasOwnProperty.call(target, 'sendCommand') && typeof target.sendCommand === 'function')
+            ? target.sendCommand
             : (proto && typeof proto.sendCommand === 'function')
                 ? proto.sendCommand
                 : null;
@@ -104,6 +113,7 @@ export const trackRedis = (client, options = {}) => {
     if (!originalSendCommand) {
         console.warn('trackRedis: client does not have a sendCommand method - skipping');
         delete client[WRAPPED];
+        delete target[WRAPPED];
         return client;
     }
 
@@ -111,7 +121,8 @@ export const trackRedis = (client, options = {}) => {
         ? new Set([...READ_COMMANDS, ...options.extraReadCommands.map(c => c.toLowerCase())])
         : READ_COMMANDS;
 
-    if (typeof client.on === 'function') {
+    if (typeof target.on === 'function' || typeof client.on === 'function') {
+        const eventClient = typeof target.on === 'function' ? target : client;
         const setConnected = () => {
             try { redisConnectionState.set(sanitizeLabels(), 1); } catch (e) { }
         };
@@ -120,6 +131,8 @@ export const trackRedis = (client, options = {}) => {
         };
 
         const alreadyConnected =
+            target.isReady === true ||
+            target.isOpen === true ||
             client.isReady === true ||
             client.isOpen === true ||
             client.status === 'ready';
@@ -128,17 +141,18 @@ export const trackRedis = (client, options = {}) => {
             setConnected();
         }
 
-        if (!client[EVENTS_REGISTERED]) {
-            client.on('connect', setConnected);
-            client.on('ready', setConnected);
-            client.on('end', setDisconnected);
-            client.on('close', setDisconnected);
+        if (!target[EVENTS_REGISTERED] && !client[EVENTS_REGISTERED]) {
+            eventClient.on('connect', setConnected);
+            eventClient.on('ready', setConnected);
+            eventClient.on('end', setDisconnected);
+            eventClient.on('close', setDisconnected);
 
+            target[EVENTS_REGISTERED] = true;
             client[EVENTS_REGISTERED] = true;
         }
     }
 
-    client.sendCommand = async function (command, ...rest) {
+    const wrappedSendCommand = async function (command, ...rest) {
         const { cmd, args } = normalizeCommand(command, rest);
         const start = process.hrtime.bigint();
         const baseLabels = { ...defaultLabelValues, command: cmd };
@@ -169,6 +183,11 @@ export const trackRedis = (client, options = {}) => {
             safeObserve(redisCommandDuration, baseLabels, duration);
         }
     };
+
+    target.sendCommand = wrappedSendCommand;
+    if (client !== target) {
+        client.sendCommand = wrappedSendCommand;
+    }
 
     return client;
 };
