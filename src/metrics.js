@@ -2,15 +2,15 @@ import client from 'prom-client';
 import config from './config.js';
 import { trackOutboundDependencies } from './instruments/outbound.js';
 import { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
-import { 
-    ConnectorMetrics, 
-    MicroflowMetrics, 
-    DocumentDownloadMetrics, 
-    DocumentUploadMetrics, 
-    GeneratePdf, 
+import {
+    ConnectorMetrics,
+    MicroflowMetrics,
+    DocumentDownloadMetrics,
+    DocumentUploadMetrics,
+    GeneratePdf,
     PiscinaMetrics,
     AsyncNodeMetrics,
- } from './instruments/platform.js';
+} from './instruments/platform.js';
 import os from 'os';
 import v8 from 'v8';
 import cron from 'node-cron';
@@ -48,15 +48,15 @@ try {
     console.error('Failed to set default labels on registry:', err);
 }
 
-const Platform = { 
-    ConnectorMetrics: new ConnectorMetrics(config), 
-    MicroflowMetrics: new MicroflowMetrics(config), 
-    DocumentDownloadMetrics: new DocumentDownloadMetrics(config), 
-    DocumentUploadMetrics : new DocumentUploadMetrics(config), 
-    GeneratePdf: new GeneratePdf(config), 
+const Platform = {
+    ConnectorMetrics: new ConnectorMetrics(config),
+    MicroflowMetrics: new MicroflowMetrics(config),
+    DocumentDownloadMetrics: new DocumentDownloadMetrics(config),
+    DocumentUploadMetrics: new DocumentUploadMetrics(config),
+    GeneratePdf: new GeneratePdf(config),
     PiscinaMetrics: new PiscinaMetrics(),
     AsyncNodeMetrics: new AsyncNodeMetrics(config),
- };
+};
 
 const httpRequestsTotal = new Counter({
     name: 'http_requests_total',
@@ -606,10 +606,10 @@ async function initMetrics(options = {}) {
 
     try {
         redisConnectionState.set(sanitizeLabels(), 1);
-    } catch (err) {}
+    } catch (err) { }
     try {
         rabbitmqConnectionState.set(sanitizeLabels(), 1);
-    } catch (err) {}
+    } catch (err) { }
 
     if (config.includeSystemMetrics) {
         collectDefaultMetrics({ register: registry, labels: defaultLabelValues });

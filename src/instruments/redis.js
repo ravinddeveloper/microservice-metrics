@@ -72,6 +72,23 @@ export const trackRedis = (client, options = {}) => {
     if (client[WRAPPED]) return client;
     client[WRAPPED] = true;
     const proto = Object.getPrototypeOf(client);
+    const isCluster =
+        client?.constructor?.name === 'RedisCluster' ||
+        typeof client?.nodes === 'function';
+
+    if (isCluster) {
+        const wrapNodes = () => {
+            const nodes = typeof client.nodes === 'function' ? client.nodes('master') : [];
+            nodes.forEach(node => { if (!node[WRAPPED]) trackRedis(node, options); });
+        };
+        if (typeof client.on === 'function') {
+            client.once('ready', wrapNodes);
+        }
+        wrapNodes();
+        client[WRAPPED] = true;
+        return client;
+    }
+
     const originalSendCommand =
         (Object.prototype.hasOwnProperty.call(client, 'sendCommand') && typeof client.sendCommand === 'function')
             ? client.sendCommand
