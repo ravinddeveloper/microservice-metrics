@@ -21,26 +21,99 @@ const READ_COMMANDS = new Set([
     'geodist', 'geohash', 'geopos', 'georadius', 'georadiusbymember',
 ]);
 
+const KNOWN_COMMANDS = new Set([
+    'get', 'set', 'del', 'hget', 'hset', 'lpush', 'rpush', 'sadd', 'zadd',
+    'ping', 'info', 'keys', 'exists', 'expire', 'ttl', 'mget', 'hmget',
+    'hgetall', 'lrange', 'smembers', 'zrange', 'zrangebyscore', 'json',
+    'getrange', 'getbit', 'hkeys', 'hvals', 'hlen', 'hstrlen', 'lindex',
+    'llen', 'lpos', 'scard', 'sismember', 'srandmember', 'zcard', 'zcount',
+    'zlexcount', 'zrank', 'zrevrank', 'bitcount', 'bitpos', 'geodist',
+    'geohash', 'geopos', 'georadius', 'georadiusbymember', 'flushall',
+    'flushdb', 'select', 'auth', 'quit', 'echo', 'time', 'dbsize',
+    'incr', 'decr', 'incrby', 'decrby', 'append', 'strlen', 'setnx',
+    'setex', 'psetex', 'getset', 'mset', 'msetnx', 'hmset', 'hsetnx',
+    'hincrby', 'hincrbyfloat', 'hexists', 'hdel', 'lpop', 'rpop',
+    'lpushx', 'rpushx', 'lset', 'linsert', 'lrem', 'ltrim', 'blpop',
+    'brpop', 'brpoplpush', 'srem', 'spop', 'smove', 'sinter', 'sinterstore',
+    'sunion', 'sunionstore', 'sdiff', 'sdiffstore', 'zrem', 'zincrby',
+    'zscore', 'zrevrange', 'zrangebyscore', 'zcount', 'zremrangebyrank',
+    'zremrangebyscore', 'zrank', 'zrevrank', 'zinterstore', 'zunionstore'
+]);
+
 const WRAPPED = Symbol('redisWrapped');
 const EVENTS_REGISTERED = Symbol('redisEventsRegistered');
 
+const extractRedisCommand = (cmd) => {
+    if (!cmd) return 'unknown';
+
+    let cmdStr = String(cmd);
+
+    if (typeof cmdStr === 'string') {
+        cmdStr = cmdStr.toLowerCase().trim();
+
+        if (cmdStr.includes('"')) {
+            const parts = cmdStr.split('"');
+            if (parts.length > 0) {
+                cmdStr = parts[0].trim();
+            }
+        }
+
+        if (cmdStr.includes(' ')) {
+            cmdStr = cmdStr.split(' ')[0];
+        }
+
+        if (cmdStr.includes('_')) {
+            const parts = cmdStr.split('_');
+            if (parts.length > 0 && KNOWN_COMMANDS.has(parts[0])) {
+                return parts[0];
+            }
+        }
+
+        if (KNOWN_COMMANDS.has(cmdStr)) {
+            return cmdStr;
+        }
+
+        for (const known of KNOWN_COMMANDS) {
+            if (cmdStr.includes(known) && cmdStr.indexOf(known) === 0) {
+                return known;
+            }
+        }
+
+        if (cmdStr.length > 20) {
+            const match = cmdStr.match(/^(get|set|del|hget|hset|lpush|rpush|sadd|zadd|ping|mget|hmget|hgetall|lrange|smembers|zrange|zrangebyscore|json|exists|expire|ttl|keys|info)/);
+            if (match) {
+                return match[1];
+            }
+        }
+    }
+
+    return 'unknown';
+};
+
 const normalizeCommand = (command, rest) => {
     if (Array.isArray(command)) {
+        const cmd = String(command[0] || 'unknown');
+        const cleanCmd = extractRedisCommand(cmd);
         return {
-            cmd: String(command[0] || 'unknown').toLowerCase(),
+            cmd: cleanCmd,
             args: command.slice(1),
         };
     }
 
     if (typeof command === 'object' && command !== null) {
-        const cmd = command.name || command.command || 'unknown';
+        let cmd = command.name || command.command || 'unknown';
         let args = command.args || command.arguments || [];
         if (!Array.isArray(args)) args = [args];
-        return { cmd: String(cmd).toLowerCase(), args };
+        const cleanCmd = extractRedisCommand(cmd);
+        return {
+            cmd: cleanCmd,
+            args: args,
+        };
     }
 
+    const cleanCmd = extractRedisCommand(command);
     return {
-        cmd: String(command || 'unknown').toLowerCase(),
+        cmd: cleanCmd,
         args: rest?.[0] || [],
     };
 };
@@ -64,7 +137,7 @@ const getKeyPrefix = (args) => {
     const dotIndex = key.indexOf('.');
     if (dotIndex > 0) return key.substring(0, dotIndex + 1);
 
-    return key.length > 30 ? key.substring(0, 30) : key;
+    return key.length > 30 ? key.substring(0, 30) + '...' : key;
 };
 
 const isCacheHit = (result) => {
@@ -94,7 +167,12 @@ const safeObserve = (metric, labels, value) => {
 
 const trackCommand = (cmd, args, result, error, startTime) => {
     const duration = Number(process.hrtime.bigint() - startTime) / 1e9;
-    const command = String(cmd).toLowerCase();
+    const command = extractRedisCommand(cmd);
+
+    if (command === 'unknown') {
+        return;
+    }
+
     const baseLabels = { ...defaultLabelValues, command };
 
     safeInc(redisCommands, baseLabels);
@@ -127,29 +205,26 @@ const trackCommand = (cmd, args, result, error, startTime) => {
 const wrapPromiseMethod = (originalMethod) => {
     return function (...args) {
         const startTime = process.hrtime.bigint();
-        const command = args[0];
-        const rest = args.slice(1);
+        const { cmd, args: cmdArgs } = normalizeCommand(args[0], args.slice(1));
 
         try {
             const result = originalMethod.apply(this, args);
+
             if (result && typeof result.then === 'function') {
                 return result
                     .then(res => {
-                        const { cmd, args: cmdArgs } = normalizeCommand(command, rest);
                         trackCommand(cmd, cmdArgs, res, null, startTime);
                         return res;
                     })
                     .catch(err => {
-                        const { cmd, args: cmdArgs } = normalizeCommand(command, rest);
                         trackCommand(cmd, cmdArgs, null, err, startTime);
                         throw err;
                     });
             }
-            const { cmd, args: cmdArgs } = normalizeCommand(command, rest);
+
             trackCommand(cmd, cmdArgs, result, null, startTime);
             return result;
         } catch (error) {
-            const { cmd, args: cmdArgs } = normalizeCommand(command, rest);
             trackCommand(cmd, cmdArgs, null, error, startTime);
             throw error;
         }
@@ -159,23 +234,21 @@ const wrapPromiseMethod = (originalMethod) => {
 const wrapCallbackMethod = (originalMethod) => {
     return function (...args) {
         const startTime = process.hrtime.bigint();
-        const command = args[0];
-        const rest = args.slice(1);
+        const { cmd, args: cmdArgs } = normalizeCommand(args[0], args.slice(1));
 
-        const lastArg = rest[rest.length - 1];
+        const lastArg = cmdArgs[cmdArgs.length - 1];
         const hasCallback = typeof lastArg === 'function';
 
         if (hasCallback) {
             const callback = lastArg;
-            const newArgs = rest.slice(0, -1);
+            const newArgs = cmdArgs.slice(0, -1);
 
             const wrappedCallback = (err, result) => {
-                const { cmd, args: cmdArgs } = normalizeCommand(command, newArgs);
-                trackCommand(cmd, cmdArgs, result, err, startTime);
+                trackCommand(cmd, newArgs, result, err, startTime);
                 callback(err, result);
             };
 
-            return originalMethod.apply(this, [...newArgs, wrappedCallback]);
+            return originalMethod.apply(this, [args[0], ...newArgs, wrappedCallback]);
         }
 
         try {
@@ -183,22 +256,18 @@ const wrapCallbackMethod = (originalMethod) => {
             if (result && typeof result.then === 'function') {
                 return result
                     .then(res => {
-                        const { cmd, args: cmdArgs } = normalizeCommand(command, rest);
                         trackCommand(cmd, cmdArgs, res, null, startTime);
                         return res;
                     })
                     .catch(err => {
-                        const { cmd, args: cmdArgs } = normalizeCommand(command, rest);
                         trackCommand(cmd, cmdArgs, null, err, startTime);
                         throw err;
                     });
             }
 
-            const { cmd, args: cmdArgs } = normalizeCommand(command, rest);
             trackCommand(cmd, cmdArgs, result, null, startTime);
             return result;
         } catch (error) {
-            const { cmd, args: cmdArgs } = normalizeCommand(command, rest);
             trackCommand(cmd, cmdArgs, null, error, startTime);
             throw error;
         }
@@ -294,13 +363,13 @@ export const trackRedis = (client, options = {}) => {
         }
     };
 
-    const methodNames = Object.getOwnPropertyNames(Object.getPrototypeOf(target));
     const wrappedMethods = new Set();
 
     if (typeof target.sendCommand === 'function') {
         target.sendCommand = wrapPromiseMethod(target.sendCommand.bind(target));
         wrappedMethods.add('sendCommand');
     }
+
     if (typeof target.call === 'function' && target.call !== target.sendCommand) {
         target.call = wrapPromiseMethod(target.call.bind(target));
         wrappedMethods.add('call');
@@ -310,6 +379,7 @@ export const trackRedis = (client, options = {}) => {
         target.send_command = wrapCallbackMethod(target.send_command.bind(target));
         wrappedMethods.add('send_command');
     }
+
     const genericMethods = ['get', 'set', 'del', 'hget', 'hset', 'lpush', 'rpush', 'sadd', 'zadd'];
     genericMethods.forEach(method => {
         if (typeof target[method] === 'function' && !wrappedMethods.has(method)) {
@@ -322,6 +392,7 @@ export const trackRedis = (client, options = {}) => {
         const originalMulti = target.multi.bind(target);
         target.multi = function (...args) {
             const multi = originalMulti(...args);
+
             if (multi && typeof multi.exec === 'function') {
                 const originalExec = multi.exec.bind(multi);
                 multi.exec = function (...execArgs) {
@@ -334,7 +405,7 @@ export const trackRedis = (client, options = {}) => {
                             if (Array.isArray(result)) {
                                 result.forEach(([err, res], index) => {
                                     const cmdData = multi._commands?.[index] || ['unknown'];
-                                    const cmd = String(cmdData[0] || 'unknown').toLowerCase();
+                                    const cmd = extractRedisCommand(cmdData[0]);
                                     const args = cmdData.slice(1) || [];
 
                                     trackCommand(cmd, args, res, err, startTime);
@@ -367,12 +438,9 @@ export const trackRedis = (client, options = {}) => {
                     if (typeof multi[method] === 'function') {
                         const originalMethod = multi[method].bind(multi);
                         multi[method] = function (...args) {
-                            const startTime = process.hrtime.bigint();
-                            const result = originalMethod(...args);
                             if (!multi._commands) multi._commands = [];
                             multi._commands.push([method, ...args]);
-
-                            return result;
+                            return originalMethod(...args);
                         };
                     }
                 });
@@ -387,11 +455,14 @@ export const trackRedis = (client, options = {}) => {
 
     return client;
 };
+
 export const isRedisTracked = (client) => {
     return !!(client && client[WRAPPED]);
 };
+
 export const untrackRedis = (client) => {
     if (!client) return;
+
     delete client[WRAPPED];
     if (client._self) {
         delete client._self[WRAPPED];

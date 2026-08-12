@@ -1,6 +1,5 @@
 import client from 'prom-client';
 import config from './config.js';
-import { trackOutboundDependencies } from './instruments/outbound.js';
 import { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
 import {
     ConnectorMetrics,
@@ -14,9 +13,6 @@ import {
 import os from 'os';
 import v8 from 'v8';
 import cron from 'node-cron';
-import { trackRabbitMQ } from './instruments/rabbitmq.js';
-import { trackRedis } from './instruments/redis.js';
-import { initPerfHooksMetrics, stopPerfHooksMetrics } from './instruments/perfHooks.js';
 
 const { Registry, Counter, Histogram, Gauge, Summary, collectDefaultMetrics, Pushgateway } = client;
 
@@ -564,18 +560,22 @@ async function initMetrics(options = {}) {
     });
 
     if (config.trackOutbound) {
+        const { trackOutboundDependencies } = await import('./instruments/outbound.js');
         trackOutboundDependencies();
     }
 
     if (config.rabbitmq?.enabled && config.rabbitmq?.amqplib) {
+        const { trackRabbitMQ } = await import('./instruments/rabbitmq.js');
         trackRabbitMQ(config.rabbitmq.amqplib);
     }
 
     if (config.redis?.enabled && config.redis?.client) {
+        const { trackRedis } = await import('./instruments/redis.js');
         trackRedis(config.redis.client);
     }
 
     if (config.perf_metrics_enabled) {
+        const { initPerfHooksMetrics } = await import('./instruments/perfHooks.js');
         initPerfHooksMetrics();
     }
 
