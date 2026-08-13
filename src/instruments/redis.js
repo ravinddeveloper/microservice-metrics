@@ -22,263 +22,380 @@ const READ_COMMANDS = new Set([
 ]);
 
 const KNOWN_COMMANDS = new Set([
-    'get', 'set', 'del', 'hget', 'hset', 'lpush', 'rpush', 'sadd', 'zadd',
-    'ping', 'info', 'keys', 'exists', 'expire', 'ttl', 'mget', 'hmget',
-    'hgetall', 'lrange', 'smembers', 'zrange', 'zrangebyscore', 'json',
-    'getrange', 'getbit', 'hkeys', 'hvals', 'hlen', 'hstrlen', 'lindex',
-    'llen', 'lpos', 'scard', 'sismember', 'srandmember', 'zcard', 'zcount',
-    'zlexcount', 'zrank', 'zrevrank', 'bitcount', 'bitpos', 'geodist',
-    'geohash', 'geopos', 'georadius', 'georadiusbymember', 'flushall',
-    'flushdb', 'select', 'auth', 'quit', 'echo', 'time', 'dbsize',
-    'incr', 'decr', 'incrby', 'decrby', 'append', 'strlen', 'setnx',
-    'setex', 'psetex', 'getset', 'mset', 'msetnx', 'hmset', 'hsetnx',
-    'hincrby', 'hincrbyfloat', 'hexists', 'hdel', 'lpop', 'rpop',
-    'lpushx', 'rpushx', 'lset', 'linsert', 'lrem', 'ltrim', 'blpop',
-    'brpop', 'brpoplpush', 'srem', 'spop', 'smove', 'sinter', 'sinterstore',
-    'sunion', 'sunionstore', 'sdiff', 'sdiffstore', 'zrem', 'zincrby',
-    'zscore', 'zrevrange', 'zrangebyscore', 'zcount', 'zremrangebyrank',
-    'zremrangebyscore', 'zrank', 'zrevrank', 'zinterstore', 'zunionstore'
+    // reads
+    'get', 'mget', 'hget', 'hmget', 'hgetall',
+    'hkeys', 'hvals', 'hlen', 'hstrlen', 'hexists',
+    'lrange', 'lindex', 'llen', 'lpos',
+    'smembers', 'sismember', 'srandmember', 'scard',
+    'sinter', 'sunion', 'sdiff',
+    'zrange', 'zrevrange', 'zrangebyscore', 'zrevrangebyscore',
+    'zcard', 'zcount', 'zlexcount', 'zrank', 'zrevrank', 'zscore',
+    'getrange', 'getbit', 'strlen',
+    'bitcount', 'bitpos',
+    'geodist', 'geohash', 'geopos', 'georadius', 'georadiusbymember',
+    'json.get',
+    // writes
+    'set', 'setnx', 'setex', 'psetex', 'getset', 'getdel', 'getex',
+    'mset', 'msetnx',
+    'del', 'unlink',
+    'append', 'incr', 'decr', 'incrby', 'decrby', 'incrbyfloat',
+    'hset', 'hmset', 'hsetnx', 'hincrby', 'hincrbyfloat', 'hdel',
+    'lpush', 'rpush', 'lpushx', 'rpushx',
+    'lpop', 'rpop', 'lset', 'linsert', 'lrem', 'ltrim',
+    'blpop', 'brpop', 'brpoplpush',
+    'sadd', 'srem', 'spop', 'smove',
+    'sinterstore', 'sunionstore', 'sdiffstore',
+    'zadd', 'zrem', 'zincrby',
+    'zremrangebyrank', 'zremrangebyscore',
+    'zinterstore', 'zunionstore',
+    'json.set', 'json.del', 'json.arrappend', 'json.arrlen',
+    'json.objkeys', 'json.mget', 'json.type', 'json.numincrby',
+    'ft.search', 'ft.aggregate', 'ft.create', 'ft.dropindex',
+    // control
+    'ping', 'exists', 'expire', 'pexpire', 'expireat', 'persist',
+    'ttl', 'pttl', 'type', 'rename', 'renamenx',
+    'keys', 'scan', 'hscan', 'sscan', 'zscan',
+    'select', 'auth', 'info', 'dbsize', 'time',
+    'flushdb', 'flushall', 'echo', 'quit', 'wait',
+    'object', 'debug', 'dump', 'restore', 'migrate', 'move', 'sort', 'copy',
+    'eval', 'evalsha', 'script',
+    'publish', 'subscribe', 'psubscribe', 'unsubscribe', 'punsubscribe',
+    'xadd', 'xread', 'xreadgroup', 'xrange', 'xrevrange',
+    'xlen', 'xack', 'xdel', 'xtrim', 'xgroup', 'xinfo', 'xpending', 'xclaim',
+    'lmpop', 'zmpop',
+    'cluster', 'command', 'config', 'client',
+    'lolwut', 'latency', 'memory', 'module', 'slowlog', 'acl',
+    'reset', 'hello',
+]);
+
+const CACHE_LOOKUP_COMMANDS = new Set([
+    'get', 'mget', 'hget', 'hmget', 'hgetall', 'json.get',
 ]);
 
 const WRAPPED = Symbol('redisWrapped');
 const EVENTS_REGISTERED = Symbol('redisEventsRegistered');
 
 const extractRedisCommand = (cmd) => {
-    if (!cmd) return 'unknown';
-
-    let cmdStr = String(cmd);
-
-    if (typeof cmdStr === 'string') {
-        cmdStr = cmdStr.toLowerCase().trim();
-
-        if (cmdStr.includes('"')) {
-            const parts = cmdStr.split('"');
-            if (parts.length > 0) {
-                cmdStr = parts[0].trim();
-            }
-        }
-
-        if (cmdStr.includes(' ')) {
-            cmdStr = cmdStr.split(' ')[0];
-        }
-
-        if (cmdStr.includes('_')) {
-            const parts = cmdStr.split('_');
-            if (parts.length > 0 && KNOWN_COMMANDS.has(parts[0])) {
-                return parts[0];
-            }
-        }
-
-        if (KNOWN_COMMANDS.has(cmdStr)) {
-            return cmdStr;
-        }
-
-        for (const known of KNOWN_COMMANDS) {
-            if (cmdStr.includes(known) && cmdStr.indexOf(known) === 0) {
-                return known;
-            }
-        }
-
-        if (cmdStr.length > 20) {
-            const match = cmdStr.match(/^(get|set|del|hget|hset|lpush|rpush|sadd|zadd|ping|mget|hmget|hgetall|lrange|smembers|zrange|zrangebyscore|json|exists|expire|ttl|keys|info)/);
-            if (match) {
-                return match[1];
-            }
-        }
+    if (typeof cmd === 'string') {
+        const lower = cmd.toLowerCase();
+        return KNOWN_COMMANDS.has(lower) ? lower : 'unknown';
     }
-
+    if (Array.isArray(cmd)) {
+        return extractRedisCommand(cmd[0]);
+    }
+    if (cmd !== null && typeof cmd === 'object') {
+        return extractRedisCommand(cmd.name ?? cmd.command);
+    }
     return 'unknown';
 };
 
-const normalizeCommand = (command, rest) => {
-    if (Array.isArray(command)) {
-        const cmd = String(command[0] || 'unknown');
-        const cleanCmd = extractRedisCommand(cmd);
-        return {
-            cmd: cleanCmd,
-            args: command.slice(1),
-        };
-    }
-
-    if (typeof command === 'object' && command !== null) {
-        let cmd = command.name || command.command || 'unknown';
-        let args = command.args || command.arguments || [];
-        if (!Array.isArray(args)) args = [args];
-        const cleanCmd = extractRedisCommand(cmd);
-        return {
-            cmd: cleanCmd,
-            args: args,
-        };
-    }
-
-    const cleanCmd = extractRedisCommand(command);
-    return {
-        cmd: cleanCmd,
-        args: rest?.[0] || [],
-    };
-};
-
 const getKeyPrefix = (args) => {
-    let key = Array.isArray(args)
+    const key = Array.isArray(args)
         ? (Array.isArray(args[0]) ? args[0][0] : args[0])
         : args;
 
-    if (!key || typeof key !== 'string') return 'unknown';
+    if (typeof key !== 'string' || key.length === 0) return 'unknown';
 
-    const match = key.match(/^\{([^}]+)\}/);
-    if (match) return match[1];
+    if (key.charCodeAt(0) === 123 /* '{' */) {
+        const end = key.indexOf('}');
+        if (end > 1) return key.slice(1, end);
+    }
 
-    const underscoreIndex = key.indexOf('_');
-    if (underscoreIndex > 0) return key.substring(0, underscoreIndex + 1);
+    let idx = key.indexOf('_');
+    if (idx > 0) return key.slice(0, idx + 1);
 
-    const colonIndex = key.indexOf(':');
-    if (colonIndex > 0) return key.substring(0, colonIndex + 1);
+    idx = key.indexOf(':');
+    if (idx > 0) return key.slice(0, idx + 1);
 
-    const dotIndex = key.indexOf('.');
-    if (dotIndex > 0) return key.substring(0, dotIndex + 1);
+    idx = key.indexOf('.');
+    if (idx > 0) return key.slice(0, idx + 1);
 
-    return key.length > 30 ? key.substring(0, 30) + '...' : key;
+    return key.length > 30 ? key.slice(0, 30) + '...' : key;
 };
 
+
 const isCacheHit = (result) => {
-    if (result === null || result === undefined) return false;
+    if (result == null) return false;
+
     if (Array.isArray(result)) {
-        return result.some(v => v !== null && v !== undefined);
+        for (const v of result) {
+            if (v != null) return true;
+        }
+        return false;
     }
+
     if (typeof result === 'object') {
-        return Object.keys(result).length > 0;
+        return Object.keys(result).length !== 0;
     }
+
     return true;
 };
 
 const safeInc = (metric, labels) => {
     try {
-        metric.inc(sanitizeLabels(labels));
-    } catch (err) {
+        metric.inc(labels);
+    } catch {
     }
 };
 
 const safeObserve = (metric, labels, value) => {
     try {
-        metric.observe(sanitizeLabels(labels), value);
-    } catch (err) {
+        metric.observe(labels, value);
+    } catch {
     }
 };
 
-const trackCommand = (cmd, args, result, error, startTime) => {
-    const duration = Number(process.hrtime.bigint() - startTime) / 1e9;
-    const command = extractRedisCommand(cmd);
 
-    if (command === 'unknown') {
-        return;
-    }
+const trackCommandFast = (command, rawArg, result, error, startTime, collectDetails) => {
+    const commandLabels = sanitizeLabels({ command });
+    safeInc(redisCommands, commandLabels);
 
-    const baseLabels = { ...defaultLabelValues, command };
+    if (collectDetails && startTime !== null) {
+        const duration = Number(process.hrtime.bigint() - startTime) / 1e9;
+        safeObserve(redisCommandDuration, commandLabels, duration);
+        if (CACHE_LOOKUP_COMMANDS.has(command)) {
+            const args = Array.isArray(rawArg) ? rawArg.slice(1) : (rawArg?.args ?? []);
+            const cacheLabels = sanitizeLabels({ key_prefix: getKeyPrefix(args) });
 
-    safeInc(redisCommands, baseLabels);
-    safeObserve(redisCommandDuration, baseLabels, duration);
-
-    if (READ_COMMANDS.has(command)) {
-        const prefixLabels = {
-            ...defaultLabelValues,
-            key_prefix: getKeyPrefix(args)
-        };
-
-        if (error) {
-            safeInc(redisCacheMisses, prefixLabels);
-        } else if (isCacheHit(result)) {
-            safeInc(redisCacheHits, prefixLabels);
-        } else {
-            safeInc(redisCacheMisses, prefixLabels);
-        }
-    }
-
-    if (error) {
-        safeInc(redisConnectionErrors, {
-            ...defaultLabelValues,
-            error_type: error?.name || error?.code || 'UnknownError',
-            command,
-        });
-    }
-};
-
-const wrapPromiseMethod = (originalMethod) => {
-    return function (...args) {
-        const startTime = process.hrtime.bigint();
-        const { cmd, args: cmdArgs } = normalizeCommand(args[0], args.slice(1));
-
-        try {
-            const result = originalMethod.apply(this, args);
-
-            if (result && typeof result.then === 'function') {
-                return result
-                    .then(res => {
-                        trackCommand(cmd, cmdArgs, res, null, startTime);
-                        return res;
-                    })
-                    .catch(err => {
-                        trackCommand(cmd, cmdArgs, null, err, startTime);
-                        throw err;
-                    });
+            if (error != null || !isCacheHit(result)) {
+                safeInc(redisCacheMisses, cacheLabels);
+            } else {
+                safeInc(redisCacheHits, cacheLabels);
             }
-
-            trackCommand(cmd, cmdArgs, result, null, startTime);
-            return result;
-        } catch (error) {
-            trackCommand(cmd, cmdArgs, null, error, startTime);
-            throw error;
         }
+    }
+
+    if (error != null) {
+        safeInc(redisConnectionErrors, sanitizeLabels({
+            error_type: error?.code || error?.name || 'UnknownError',
+            command,
+        }));
+    }
+};
+
+
+const buildSendCommandWrapper = (originalMethod, detailed, normalizedSampleRate) => {
+    return function (...args) {
+        const command = extractRedisCommand(args[0]);
+        if (command === 'unknown') {
+            return originalMethod.apply(this, args);
+        }
+
+        const collectDetails = detailed &&
+            (normalizedSampleRate >= 1 || Math.random() < normalizedSampleRate);
+        const startTime = collectDetails ? process.hrtime.bigint() : null;
+
+        let result;
+        try {
+            result = originalMethod.apply(this, args);
+        } catch (err) {
+            trackCommandFast(command, args[0], null, err, startTime, collectDetails);
+            throw err;
+        }
+        if (result !== null && result !== undefined && typeof result.then === 'function') {
+            return result.then(
+                (value) => {
+                    trackCommandFast(command, args[0], value, null, startTime, collectDetails);
+                    return value;
+                },
+                (err) => {
+                    trackCommandFast(command, args[0], null, err, startTime, collectDetails);
+                    throw err;
+                }
+            );
+        }
+        trackCommandFast(command, args[0], result, null, startTime, collectDetails);
+        return result;
     };
 };
 
-const wrapCallbackMethod = (originalMethod) => {
+const buildCallbackSendCommandWrapper = (originalMethod, detailed, normalizedSampleRate) => {
     return function (...args) {
-        const startTime = process.hrtime.bigint();
-        const { cmd, args: cmdArgs } = normalizeCommand(args[0], args.slice(1));
+        const command = extractRedisCommand(args[0]);
 
-        const lastArg = cmdArgs[cmdArgs.length - 1];
-        const hasCallback = typeof lastArg === 'function';
+        if (command === 'unknown') {
+            return originalMethod.apply(this, args);
+        }
+        const collectDetails = detailed &&
+            (normalizedSampleRate >= 1 || Math.random() < normalizedSampleRate);
+        const startTime = collectDetails ? process.hrtime.bigint() : null;
 
-        if (hasCallback) {
-            const callback = lastArg;
-            const newArgs = cmdArgs.slice(0, -1);
+        const last = args[args.length - 1];
+        if (typeof last === 'function') {
+            const callback = last;
+            args[args.length - 1] = (err, res) => {
+                trackCommandFast(command, args[0], res, err ?? null, startTime, collectDetails);
+                callback(err, res);
+            };
+            return originalMethod.apply(this, args);
+        }
 
-            const wrappedCallback = (err, result) => {
-                trackCommand(cmd, newArgs, result, err, startTime);
-                callback(err, result);
+        let result;
+        try {
+            result = originalMethod.apply(this, args);
+        } catch (err) {
+            trackCommandFast(command, args[0], null, err, startTime, collectDetails);
+            throw err;
+        }
+
+        if (result !== null && result !== undefined && typeof result.then === 'function') {
+            return result.then(
+                (value) => {
+                    trackCommandFast(command, args[0], value, null, startTime, collectDetails);
+                    return value;
+                },
+                (err) => {
+                    trackCommandFast(command, args[0], null, err, startTime, collectDetails);
+                    throw err;
+                }
+            );
+        }
+
+        trackCommandFast(command, args[0], result, null, startTime, collectDetails);
+        return result;
+    };
+};
+
+const wrapMulti = (target, detailed, normalizedSampleRate) => {
+    if (typeof target.multi !== 'function') return;
+
+    const originalMulti = target.multi.bind(target);
+
+    target.multi = function (...args) {
+        const multi = originalMulti(...args);
+
+        if (!multi || typeof multi.exec !== 'function') return multi;
+
+        const originalExec = multi.exec.bind(multi);
+
+        multi.exec = function (...execArgs) {
+            const collectDetails = detailed &&
+                (normalizedSampleRate >= 1 || Math.random() < normalizedSampleRate);
+            const startTime = collectDetails ? process.hrtime.bigint() : null;
+
+            const finish = (result, pipelineError) => {
+                const pipelineLabels = sanitizeLabels({ command: 'pipeline' });
+                safeInc(redisCommands, pipelineLabels);
+
+                if (collectDetails && startTime !== null) {
+                    const duration = Number(process.hrtime.bigint() - startTime) / 1e9;
+                    safeObserve(redisCommandDuration, pipelineLabels, duration);
+                }
+
+                if (pipelineError != null) {
+                    safeInc(redisConnectionErrors, sanitizeLabels({
+                        error_type: pipelineError?.code || pipelineError?.name || 'PipelineError',
+                        command: 'pipeline',
+                    }));
+                    return;
+                }
+                if (Array.isArray(result)) {
+                    const commands = multi._commands;
+                    for (let i = 0; i < result.length; i++) {
+                        const entry = result[i];
+                        const cmdErr = Array.isArray(entry) ? entry[0] : null;
+                        const cmdData = commands?.[i];
+                        const cmd = cmdData ? extractRedisCommand(Array.isArray(cmdData) ? cmdData[0] : cmdData) : 'unknown';
+
+                        if (cmd !== 'unknown') {
+                            safeInc(redisCommands, sanitizeLabels({ command: cmd }));
+                        }
+
+                        if (cmdErr != null) {
+                            safeInc(redisConnectionErrors, sanitizeLabels({
+                                error_type: cmdErr?.code || cmdErr?.name || 'PipelineCommandError',
+                                command: cmd !== 'unknown' ? cmd : 'pipeline',
+                            }));
+                        }
+                    }
+                }
             };
 
-            return originalMethod.apply(this, [args[0], ...newArgs, wrappedCallback]);
-        }
-
-        try {
-            const result = originalMethod.apply(this, args);
-            if (result && typeof result.then === 'function') {
-                return result
-                    .then(res => {
-                        trackCommand(cmd, cmdArgs, res, null, startTime);
-                        return res;
-                    })
-                    .catch(err => {
-                        trackCommand(cmd, cmdArgs, null, err, startTime);
-                        throw err;
-                    });
+            let execResult;
+            try {
+                execResult = originalExec(...execArgs);
+            } catch (err) {
+                finish(null, err);
+                throw err;
             }
 
-            trackCommand(cmd, cmdArgs, result, null, startTime);
-            return result;
-        } catch (error) {
-            trackCommand(cmd, cmdArgs, null, error, startTime);
-            throw error;
+            if (execResult !== null && execResult !== undefined && typeof execResult.then === 'function') {
+                return execResult.then(
+                    (value) => { finish(value, null); return value; },
+                    (err) => { finish(null, err); throw err; }
+                );
+            }
+
+            finish(execResult, null);
+            return execResult;
+        };
+        if (typeof multi.addCommand === 'function') {
+            const origAdd = multi.addCommand.bind(multi);
+            multi.addCommand = function (...cmdArgs) {
+                if (!multi._commands) multi._commands = [];
+                multi._commands.push(cmdArgs[0]);
+                return origAdd(...cmdArgs);
+            };
         }
+
+        return multi;
     };
 };
 
+const setupConnectionTracking = (client, target) => {
+    const eventClient = typeof target.on === 'function' ? target : client;
+    if (!eventClient || typeof eventClient.on !== 'function') return;
+    if (target[EVENTS_REGISTERED] || client[EVENTS_REGISTERED]) return;
+    const setConnected = () => { try { redisConnectionState.set(sanitizeLabels(), 1); } catch { } };
+    const setDisconnected = () => { try { redisConnectionState.set(sanitizeLabels(), 0); } catch { } };
+
+    ['connect', 'ready', 'reconnecting'].forEach(ev => eventClient.on(ev, setConnected));
+    ['end', 'close', 'error'].forEach(ev => eventClient.on(ev, setDisconnected));
+
+    target[EVENTS_REGISTERED] = true;
+    client[EVENTS_REGISTERED] = true;
+
+    const isConnected =
+        target.isReady === true || target.isOpen === true ||
+        client.isReady === true || client.isOpen === true ||
+        target.status === 'ready' || client.status === 'ready' ||
+        target.status === 'connect' || client.status === 'connect';
+
+    if (isConnected) setConnected();
+};
+
+
+/**
+ * Instruments a Redis client with Prometheus metrics.
+ *
+ * @param {object} client      - The Redis client instance (node-redis, ioredis, or cluster).
+ * @param {object} [options]
+ * @param {boolean} [options.detailed=true]
+ *   When true, records redis_command_duration, redis_cache_hits, redis_cache_misses.
+ *   Set to false in production for lower overhead.
+ *   redis_commands_total and redis_connection_errors are always recorded.
+ * @param {number} [options.sampleRate=1.0]
+ *   Fraction (0.0-1.0) of redis_command_duration and cache observations to record.
+ *   redis_commands_total and errors are always at full rate.
+ *   Example: 0.1 records ~10% of duration/cache observations.
+ *
+ * @example
+ * // Development — full detail
+ * trackRedis(redis);
+ *
+ * @example
+ * // Production — counts + errors only
+ * trackRedis(redis, { detailed: false });
+ *
+ * @example
+ * // Production — counts + errors + 10% duration/cache sampling
+ * trackRedis(redis, { detailed: true, sampleRate: 0.1 });
+ */
 export const trackRedis = (client, options = {}) => {
     if (!client) return client;
     if (client[WRAPPED]) return client;
 
-    const target = client._self || client;
+    const target = client._self ?? client;
     if (target[WRAPPED]) {
         client[WRAPPED] = true;
         return client;
@@ -286,6 +403,13 @@ export const trackRedis = (client, options = {}) => {
 
     client[WRAPPED] = true;
     target[WRAPPED] = true;
+
+    const {
+        detailed = true,
+        sampleRate = 1.0,
+    } = options;
+
+    const normalizedSampleRate = Math.max(0, Math.min(1, Number(sampleRate) || 0));
 
     const isCluster =
         client?.constructor?.name === 'RedisCluster' ||
@@ -297,18 +421,14 @@ export const trackRedis = (client, options = {}) => {
         const wrapNodes = () => {
             if (nodesWrapped) return;
             nodesWrapped = true;
-
             try {
                 const nodes = typeof client.nodes === 'function'
                     ? client.nodes('master')
                     : [];
-                nodes.forEach(node => {
-                    if (!node[WRAPPED]) {
-                        trackRedis(node, options);
-                    }
-                });
-            } catch (err) {
-            }
+                for (const node of nodes) {
+                    if (!node[WRAPPED]) trackRedis(node, options);
+                }
+            } catch { }
         };
 
         if (client.isReady || client.status === 'ready') {
@@ -321,152 +441,34 @@ export const trackRedis = (client, options = {}) => {
         return client;
     }
 
-    const setupConnectionTracking = () => {
-        const eventClient = typeof target.on === 'function' ? target : client;
-
-        if (eventClient && typeof eventClient.on === 'function') {
-            const setConnected = () => {
-                try { redisConnectionState.set(sanitizeLabels(), 1); } catch (e) { }
-            };
-            const setDisconnected = () => {
-                try { redisConnectionState.set(sanitizeLabels(), 0); } catch (e) { }
-            };
-
-            if (!target[EVENTS_REGISTERED] && !client[EVENTS_REGISTERED]) {
-                const events = ['connect', 'ready', 'reconnecting', 'end', 'close', 'error'];
-
-                events.forEach(event => {
-                    if (event === 'connect' || event === 'ready' || event === 'reconnecting') {
-                        eventClient.on(event, setConnected);
-                    } else {
-                        eventClient.on(event, setDisconnected);
-                    }
-                });
-
-                target[EVENTS_REGISTERED] = true;
-                client[EVENTS_REGISTERED] = true;
-
-                const isConnected =
-                    target.isReady === true ||
-                    target.isOpen === true ||
-                    client.isReady === true ||
-                    client.isOpen === true ||
-                    target.status === 'ready' ||
-                    client.status === 'ready' ||
-                    target.status === 'connect' ||
-                    client.status === 'connect';
-
-                if (isConnected) {
-                    setConnected();
-                }
-            }
-        }
-    };
-
-    const wrappedMethods = new Set();
-
     if (typeof target.sendCommand === 'function') {
-        target.sendCommand = wrapPromiseMethod(target.sendCommand.bind(target));
-        wrappedMethods.add('sendCommand');
+        target.sendCommand = buildSendCommandWrapper(
+            target.sendCommand.bind(target), detailed, normalizedSampleRate
+        );
+    } else if (typeof target.call === 'function') {
+        target.call = buildSendCommandWrapper(
+            target.call.bind(target), detailed, normalizedSampleRate
+        );
+    } else if (typeof target.send_command === 'function') {
+        target.send_command = buildCallbackSendCommandWrapper(
+            target.send_command.bind(target), detailed, normalizedSampleRate
+        );
     }
 
-    if (typeof target.call === 'function' && target.call !== target.sendCommand) {
-        target.call = wrapPromiseMethod(target.call.bind(target));
-        wrappedMethods.add('call');
-    }
-
-    if (typeof target.send_command === 'function' && !wrappedMethods.has('send_command')) {
-        target.send_command = wrapCallbackMethod(target.send_command.bind(target));
-        wrappedMethods.add('send_command');
-    }
-
-    const genericMethods = ['get', 'set', 'del', 'hget', 'hset', 'lpush', 'rpush', 'sadd', 'zadd'];
-    genericMethods.forEach(method => {
-        if (typeof target[method] === 'function' && !wrappedMethods.has(method)) {
-            target[method] = wrapPromiseMethod(target[method].bind(target));
-            wrappedMethods.add(method);
-        }
-    });
-
-    if (typeof target.multi === 'function' && !wrappedMethods.has('multi')) {
-        const originalMulti = target.multi.bind(target);
-        target.multi = function (...args) {
-            const multi = originalMulti(...args);
-
-            if (multi && typeof multi.exec === 'function') {
-                const originalExec = multi.exec.bind(multi);
-                multi.exec = function (...execArgs) {
-                    const startTime = process.hrtime.bigint();
-
-                    return originalExec(...execArgs)
-                        .then(result => {
-                            const duration = Number(process.hrtime.bigint() - startTime) / 1e9;
-
-                            if (Array.isArray(result)) {
-                                result.forEach(([err, res], index) => {
-                                    const cmdData = multi._commands?.[index] || ['unknown'];
-                                    const cmd = extractRedisCommand(cmdData[0]);
-                                    const args = cmdData.slice(1) || [];
-
-                                    trackCommand(cmd, args, res, err, startTime);
-                                });
-                            }
-
-                            safeInc(redisCommands, {
-                                ...defaultLabelValues,
-                                command: 'pipeline'
-                            });
-                            safeObserve(redisCommandDuration, {
-                                ...defaultLabelValues,
-                                command: 'pipeline'
-                            }, duration);
-
-                            return result;
-                        })
-                        .catch(err => {
-                            safeInc(redisConnectionErrors, {
-                                ...defaultLabelValues,
-                                error_type: err?.name || err?.code || 'PipelineError',
-                                command: 'pipeline',
-                            });
-                            throw err;
-                        });
-                };
-
-                const pipelineMethods = ['get', 'set', 'del', 'hget', 'hset', 'lpush', 'rpush'];
-                pipelineMethods.forEach(method => {
-                    if (typeof multi[method] === 'function') {
-                        const originalMethod = multi[method].bind(multi);
-                        multi[method] = function (...args) {
-                            if (!multi._commands) multi._commands = [];
-                            multi._commands.push([method, ...args]);
-                            return originalMethod(...args);
-                        };
-                    }
-                });
-            }
-
-            return multi;
-        };
-        wrappedMethods.add('multi');
-    }
-
-    setupConnectionTracking();
-
+    wrapMulti(target, detailed, normalizedSampleRate);
+    setupConnectionTracking(client, target);
     return client;
 };
 
-export const isRedisTracked = (client) => {
-    return !!(client && client[WRAPPED]);
-};
+export const isRedisTracked = (client) => !!(client && client[WRAPPED]);
 
 export const untrackRedis = (client) => {
     if (!client) return;
 
     delete client[WRAPPED];
+    delete client[EVENTS_REGISTERED];
     if (client._self) {
         delete client._self[WRAPPED];
         delete client._self[EVENTS_REGISTERED];
     }
-    delete client[EVENTS_REGISTERED];
 };
