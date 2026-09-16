@@ -557,6 +557,7 @@ async function initMetrics(options = {}) {
         redis: { ...config.redis, ...(options?.redis || {}) },
         requestTimeout: { ...config.requestTimeout, ...(options?.requestTimeout || {}) },
         circuitBreaker: { ...config.circuitBreaker, ...(options?.circuitBreaker || {}) },
+        backPressure: { ...config.backPressure, ...(options?.backPressure || {}) },
     });
 
     if (config.trackOutbound) {
