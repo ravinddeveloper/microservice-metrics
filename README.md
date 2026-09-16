@@ -38,7 +38,9 @@ import {
     metricsHandler,
     ipAllowlistMiddleware,
     trackDependency,
-    backPressureMiddleware
+    backPressureMiddleware,
+    stopBackPressure,
+    startBackPressure
 } from '@latitudenpm/metrics';
 
 initMetrics();
@@ -68,14 +70,72 @@ app.get('/api/users/:id', async (req, res) => {
 //codes 
 // BP_01_H : heap usage (80%)
 // BP_02_C : high cpu usage (100%)
-// BP_03_EL : event loop delay (500ms)
+// BP_03_EL : event loop utilization + delay (500ms delay)
 // BP_04_CM : container memory usage (90%)
-// BP_05_AR : active requests (Infinity)
-// BP_06_P95 : p95 latency (Infinity)
+// BP_05_AR : active requests (500)
+// BP_06_P95 : p95 latency (2000ms, when p95LatencyEnabled is true)
 app.use(backPressureMiddleware({ /* optional custom thresholds */ }));
 
 app.listen(8080);
 ```
+
+Call `stopBackPressure()` during graceful shutdown to stop the sampler and
+release its event-loop monitor:
+
+```js
+process.on('SIGTERM', () => {
+    stopBackPressure();
+    server.close();
+});
+```
+
+## Full DevOps configuration
+
+The complete copy-paste configuration is available in
+[`examples/devops-config.js`](./examples/devops-config.js). Apply it before
+registering middleware:
+
+```js
+import express from 'express';
+import {
+    initMetrics,
+    metricsMiddleware,
+    backPressureMiddleware,
+    stopBackPressure,
+} from '@latitudenpm/metrics';
+import metricsConfig from './examples/devops-config.js';
+
+await initMetrics(metricsConfig);
+
+const app = express();
+app.use(metricsMiddleware());
+app.use(backPressureMiddleware());
+
+const server = app.listen(process.env.PORT || 8080);
+
+process.once('SIGTERM', () => {
+    stopBackPressure();
+    server.close();
+});
+```
+
+### Configuration ownership
+
+Use `initMetrics(options)` for service configuration. The following environment
+variables are consumed directly by this package:
+
+| Variable | Used for |
+|---|---|
+| `DEFAULT_API_RESPONSE_THRESHOLD` | `sloThresholdMs` |
+| `SERVICE_NAME` | Recommended service label input |
+| `ENVIRONMENT` | Recommended environment label input |
+| `INSTANCE` | Recommended instance label input |
+| `HOSTNAME` | Fallback instance value in container deployments |
+| `METRICS_ALLOWED_IPS` | IP allowlist input for the metrics endpoint |
+
+Other deployment environment variables should be parsed by the service and
+passed into `initMetrics()` as typed values. Do not pass numeric thresholds as
+strings.
 
 ---
 

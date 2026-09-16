@@ -1,7 +1,7 @@
 export { initMetrics, Builder, CustomCounter, CustomGauge, CustomHistogram, CustomSummary, Platform } from './metrics.js';
 export { metricsMiddleware } from './middleware/http.js';
 export { requestTimeoutMiddleware, applyServerTimeouts } from './middleware/timeout.js';
-export { backPressureMiddleware } from './middleware/backPressure.js';
+export { backPressureMiddleware, stopBackPressure, startBackPressure } from './middleware/backPressure.js';
 export { getSnapshot } from './middleware/runtimeState.js';
 export { ipAllowlistMiddleware } from './middleware/security.js';
 export { trackDependency } from './instruments/dependency.js';
