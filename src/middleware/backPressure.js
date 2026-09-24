@@ -407,7 +407,7 @@ const backPressureMiddleware = (cfg = {}) => {
     return (req, res, next) => {
         if (isExempt(req.path)) return next();
 
-        if (_sampler?.overloaded) {
+        if (_sampler?.overloaded && process.env["METRICS.BACKPRESSURE.ENABLED"] == "true") {
             _sampler.incRejected();
             return res.status(429).json({
                 message: 'Server cannot accept more work temporarily',
