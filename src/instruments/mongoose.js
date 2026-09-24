@@ -170,6 +170,9 @@ const mongooseMetricsPlugin = (schema) => {
             } catch (err) {
                 console.error("Error in mongoose metrics post error hook:", err);
             }
+            if (typeof next === 'function') {
+                next(error);
+            }
         }
     );
 };
