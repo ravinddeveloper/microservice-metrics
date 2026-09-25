@@ -9,7 +9,7 @@ import { getCpuPercent, getActiveRequests, getP95Latency } from './runtimeState.
 const { Histogram, Gauge } = client;
 
 const EXEMPT_PATHS = new Set(['/metrics', '/health', '/ready', '/v1/health-check', '/v1/metrics']);
-const finiteOrZero = (value) => Number.isFinite(value) ? value : 0;
+const finiteOrZero = (value) => (Number.isFinite(value) && value >= 0 ? value : 0);
 
 class BackPressureSampler {
     #cpuThreshold;
@@ -32,8 +32,14 @@ class BackPressureSampler {
     #cleanTickCount = 0;
 
     #containerMemoryPercent = 0;
+    #containerMemoryRawPercent = 0;
+    #inactiveFilePercent = 0;
     #cgroupSupported = true;
     #cgroupFailures = 0;
+    #cgroupUsagePath = null;
+    #cgroupLimitPath = null;
+    #cgroupStatPath = null;
+    #cgroupEventsPath = null;
 
     #timer = null;
     #memTimer = null;
@@ -54,8 +60,19 @@ class BackPressureSampler {
     #eluHistogram = null;
     #lagHistogram = null;
     #containerMemHistogram = null;
+    #containerMemRawHistogram = null;
     #activeReqHistogram = null;
     #p95LatencyHistogram = null;
+    #inactiveFileHistogram = null;
+
+    #containerMemRawGauge = null;
+    #inactiveFileGauge = null;
+    #memoryModeGauge = null;
+    #memEventsHighCounter = null;
+    #memEventsMaxCounter = null;
+    #memEventsOomCounter = null;
+    #memEventsOomKillCounter = null;
+    #memEventsPrev = { high: 0, max: 0, oom: 0, oom_kill: 0 };
 
     constructor(cfg = {}) {
         this.#cpuThreshold = cfg.cpuThreshold ?? 85;
@@ -74,7 +91,8 @@ class BackPressureSampler {
 
         this.#episodeHistogram = registry.getSingleMetric('back_pressure_episode_rejections') || new Histogram({
             name: 'back_pressure_episode_rejections',
-            help: 'Requests rejected per overload episode — observed once when the episode ends',
+            help: 'Requests rejected per overload episode — observed once when the episode ends. ' +
+                'Absent/zero when no overload episode has completed yet.',
             buckets: [1, 50, 100, 250, 500, 1000],
             registers: [registry],
         });
@@ -176,6 +194,66 @@ class BackPressureSampler {
             registers: [registry],
         });
 
+        this.#containerMemRawGauge = registry.getSingleMetric('back_pressure_container_memory_raw_percent') || new Gauge({
+            name: 'back_pressure_container_memory_raw_percent',
+            help: 'Raw cgroup memory usage percent: memory.current / memory.max (before inactive_file subtraction)',
+            registers: [registry],
+        });
+
+        this.#containerMemRawHistogram = registry.getSingleMetric('back_pressure_container_memory_raw_percent_histogram') || new Histogram({
+            name: 'back_pressure_container_memory_raw_percent_histogram',
+            help: 'Distribution of raw cgroup memory usage percent',
+            buckets: [10, 25, 50, 70, 80, 85, 90, 95, 100],
+            registers: [registry],
+        });
+
+        this.#inactiveFileGauge = registry.getSingleMetric('back_pressure_container_memory_inactive_file_percent') || new Gauge({
+            name: 'back_pressure_container_memory_inactive_file_percent',
+            help: 'inactive_file as percent of memory.max — the delta between raw and effective memory',
+            registers: [registry],
+        });
+
+        this.#inactiveFileHistogram = registry.getSingleMetric('back_pressure_container_memory_inactive_file_percent_histogram') || new Histogram({
+            name: 'back_pressure_container_memory_inactive_file_percent_histogram',
+            help: 'Distribution of inactive_file as percent of memory.max per sample interval',
+            buckets: [1, 5, 10, 25, 50, 70, 80, 90, 100],
+            registers: [registry],
+        });
+
+        this.#memoryModeGauge = registry.getSingleMetric('back_pressure_container_memory_mode') || new Gauge({
+            name: 'back_pressure_container_memory_mode',
+            help: '1 = V1 mode (raw: memory.current/memory.max), 0 = V2 mode (effective: subtracts inactive_file)',
+            registers: [registry],
+        });
+
+        this.#memEventsHighCounter = registry.getSingleMetric('back_pressure_mem_events_high_total') || new client.Counter({
+            name: 'back_pressure_mem_events_high_total',
+            help: 'Cumulative memory.events high events (memory usage exceeded the high boundary). ' +
+                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
+            registers: [registry],
+        });
+
+        this.#memEventsMaxCounter = registry.getSingleMetric('back_pressure_mem_events_max_total') || new client.Counter({
+            name: 'back_pressure_mem_events_max_total',
+            help: 'Cumulative memory.events max events (memory usage hit the hard limit). ' +
+                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
+            registers: [registry],
+        });
+
+        this.#memEventsOomCounter = registry.getSingleMetric('back_pressure_mem_events_oom_total') || new client.Counter({
+            name: 'back_pressure_mem_events_oom_total',
+            help: 'Cumulative memory.events oom events (OOM killer invoked). ' +
+                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
+            registers: [registry],
+        });
+
+        this.#memEventsOomKillCounter = registry.getSingleMetric('back_pressure_mem_events_oom_kill_total') || new client.Counter({
+            name: 'back_pressure_mem_events_oom_kill_total',
+            help: 'Cumulative memory.events oom_kill events (process killed by OOM killer). ' +
+                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
+            registers: [registry],
+        });
+
         this.#timer = setInterval(() => this.#tick(), this.#sampleIntervalMs);
         this.#timer.unref?.();
 
@@ -189,6 +267,7 @@ class BackPressureSampler {
 
     async warmup() {
         await this.#updateContainerMemory();
+        this.#memoryModeGauge.set(process.env["METRICS.BACKPRESSURE.MEMORY_MODE"] === "v1" ? 1 : 0);
         this.#tick();
     }
 
@@ -217,31 +296,72 @@ class BackPressureSampler {
     async #updateContainerMemory() {
         if (!this.#cgroupSupported || this.#stopped) return;
         try {
-            let usagePath, limitPath;
-            try {
-                await fs.access('/sys/fs/cgroup/memory.current');
-                usagePath = '/sys/fs/cgroup/memory.current';
-                limitPath = '/sys/fs/cgroup/memory.max';
-            } catch {
-                usagePath = '/sys/fs/cgroup/memory/memory.usage_in_bytes';
-                limitPath = '/sys/fs/cgroup/memory/memory.limit_in_bytes';
+            if (!this.#cgroupUsagePath) {
+                try {
+                    await fs.access('/sys/fs/cgroup/memory.current');
+                    this.#cgroupUsagePath = '/sys/fs/cgroup/memory.current';
+                    this.#cgroupLimitPath = '/sys/fs/cgroup/memory.max';
+                    this.#cgroupStatPath = '/sys/fs/cgroup/memory.stat';
+                    this.#cgroupEventsPath = '/sys/fs/cgroup/memory.events';
+                } catch {
+                    this.#cgroupUsagePath = '/sys/fs/cgroup/memory/memory.usage_in_bytes';
+                    this.#cgroupLimitPath = '/sys/fs/cgroup/memory/memory.limit_in_bytes';
+                    this.#cgroupStatPath = '/sys/fs/cgroup/memory/memory.stat';
+                    this.#cgroupEventsPath = null;
+                }
             }
 
-            const usage = BigInt((await fs.readFile(usagePath, 'utf8')).trim());
-            const limitRaw = (await fs.readFile(limitPath, 'utf8')).trim();
+            const usageRaw = BigInt((await fs.readFile(this.#cgroupUsagePath, 'utf8')).trim());
+            const limitRaw = (await fs.readFile(this.#cgroupLimitPath, 'utf8')).trim();
             if (this.#stopped) return;
 
             if (limitRaw === 'max' || BigInt(limitRaw) > 9_000_000_000_000_000_000n) {
                 this.#containerMemoryPercent = 0;
+                this.#containerMemoryRawPercent = 0;
+                this.#inactiveFilePercent = 0;
                 this.#cgroupFailures = 0;
                 return;
             }
 
             const limit = BigInt(limitRaw);
+
+            let inactiveFile = 0n;
+            try {
+                const statContent = await fs.readFile(this.#cgroupStatPath, 'utf8');
+                const match = statContent.match(/^inactive_file\s+(\d+)$/m);
+                if (match) inactiveFile = BigInt(match[1]);
+            } catch { }
+
+            const effectiveUsage = usageRaw > inactiveFile ? usageRaw - inactiveFile : 0n;
+
             if (limit > 0n) {
-                this.#containerMemoryPercent = Number((usage * 10_000n) / limit) / 100;
+                this.#containerMemoryRawPercent = Number((usageRaw * 10_000n) / limit) / 100;
+                this.#containerMemoryPercent = Number((effectiveUsage * 10_000n) / limit) / 100;
+                this.#inactiveFilePercent = Number((inactiveFile * 10_000n) / limit) / 100;
             }
             this.#cgroupFailures = 0;
+
+            if (this.#cgroupEventsPath) {
+                try {
+                    const eventsContent = await fs.readFile(this.#cgroupEventsPath, 'utf8');
+                    const parse = (key) => {
+                        const m = eventsContent.match(new RegExp(`^${key}\\s+(\\d+)$`, 'm'));
+                        return m ? Number(m[1]) : 0;
+                    };
+                    const cur = {
+                        high: parse('high'),
+                        max: parse('max'),
+                        oom: parse('oom'),
+                        oom_kill: parse('oom_kill'),
+                    };
+                    const prev = this.#memEventsPrev;
+                    if (cur.high > prev.high) this.#memEventsHighCounter.inc(cur.high - prev.high);
+                    if (cur.max > prev.max) this.#memEventsMaxCounter.inc(cur.max - prev.max);
+                    if (cur.oom > prev.oom) this.#memEventsOomCounter.inc(cur.oom - prev.oom);
+                    if (cur.oom_kill > prev.oom_kill) this.#memEventsOomKillCounter.inc(cur.oom_kill - prev.oom_kill);
+                    this.#memEventsPrev = cur;
+                } catch { }
+            }
         } catch (err) {
             if (this.#stopped) return;
             this.#cgroupFailures++;
@@ -249,6 +369,8 @@ class BackPressureSampler {
                 console.warn('Disabling backpressure cgroup memory check after repeated failures:', err instanceof Error ? err.message : String(err));
                 this.#cgroupSupported = false;
                 this.#containerMemoryPercent = 0;
+                this.#containerMemoryRawPercent = 0;
+                this.#inactiveFilePercent = 0;
             }
         }
     }
@@ -274,13 +396,18 @@ class BackPressureSampler {
         const lagP99 = finiteOrZero(this.#sampleLagP99Ms());
         const activeReqs = finiteOrZero(getActiveRequests());
         const p95 = finiteOrZero(getP95Latency());
-        const containerMem = finiteOrZero(this.#containerMemoryPercent);
+        const containerMem = process.env["METRICS.BACKPRESSURE.MEMORY_MODE"] === "v1"
+            ? finiteOrZero(this.#containerMemoryRawPercent)
+            : finiteOrZero(this.#containerMemoryPercent);
 
+        this.#memoryModeGauge.set(process.env["METRICS.BACKPRESSURE.MEMORY_MODE"] === "v1" ? 1 : 0);
         this.#cpuGauge.set(parseFloat(cpu.toFixed(2)));
         this.#heapGauge.set(parseFloat(heap.toFixed(2)));
         this.#eluGauge.set(parseFloat(elu.toFixed(4)));
         this.#lagGauge.set(parseFloat(lagP99.toFixed(2)));
         this.#containerMemGauge.set(parseFloat(containerMem.toFixed(2)));
+        this.#containerMemRawGauge.set(parseFloat(finiteOrZero(this.#containerMemoryRawPercent).toFixed(2)));
+        this.#inactiveFileGauge.set(parseFloat(finiteOrZero(this.#inactiveFilePercent).toFixed(2)));
         this.#activeReqGauge.set(activeReqs);
         this.#p95LatencyGauge.set(parseFloat(p95.toFixed(2)));
 
@@ -289,6 +416,8 @@ class BackPressureSampler {
         this.#eluHistogram.observe(parseFloat(elu.toFixed(4)));
         this.#lagHistogram.observe(parseFloat(lagP99.toFixed(2)));
         this.#containerMemHistogram.observe(parseFloat(containerMem.toFixed(2)));
+        this.#containerMemRawHistogram.observe(parseFloat(finiteOrZero(this.#containerMemoryRawPercent).toFixed(2)));
+        this.#inactiveFileHistogram.observe(parseFloat(finiteOrZero(this.#inactiveFilePercent).toFixed(2)));
         this.#activeReqHistogram.observe(activeReqs);
         this.#p95LatencyHistogram.observe(parseFloat(p95.toFixed(2)));
 
@@ -302,7 +431,7 @@ class BackPressureSampler {
         } else if (elu > this.#eluThreshold && (this.#lagThresholdMs === Infinity || lagP99 > this.#lagThresholdMs)) {
             breachReason = 'BP_03_EL';
         } else if (containerMem > 0 && containerMem > this.#containerMemoryThreshold) {
-            breachReason = 'BP_04_CM';
+            breachReason = process.env["METRICS.BACKPRESSURE.MEMORY_MODE"] === "v1" ? 'BP_04_CM_V1' : 'BP_04_CM_V2';
         } else if (this.#activeRequestsThreshold < Infinity && activeReqs > this.#activeRequestsThreshold) {
             breachReason = 'BP_05_AR';
         } else if (this.#p95LatencyThreshold < Infinity && p95 > this.#p95LatencyThreshold) {
@@ -339,6 +468,8 @@ class BackPressureSampler {
     incRejected() { this.#episodeRejections++; }
     get overloaded() { return this.#overloaded; }
     get reason() { return this.#lastReason; }
+    get containerMemoryPercent() { return this.#containerMemoryPercent; }
+    get cgroupSupported() { return this.#cgroupSupported; }
 
     stop() {
         this.#stopped = true;
@@ -406,8 +537,8 @@ const backPressureMiddleware = (cfg = {}) => {
 
     return (req, res, next) => {
         if (isExempt(req.path)) return next();
-
-        if (_sampler?.overloaded && process.env["METRICS.BACKPRESSURE.ENABLED"] == "true") {
+        if (process.env["METRICS.BACKPRESSURE.ENABLED"] !== "true") return next();
+        if (_sampler?.overloaded) {
             _sampler.incRejected();
             return res.status(429).json({
                 message: 'Server cannot accept more work temporarily',
