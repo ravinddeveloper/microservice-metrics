@@ -9,7 +9,7 @@ import { getCpuPercent, getActiveRequests, getP95Latency } from './runtimeState.
 const { Histogram, Gauge } = client;
 
 const EXEMPT_PATHS = new Set(['/metrics', '/health', '/ready', '/v1/health-check', '/v1/metrics']);
-const finiteOrZero = (value) => Number.isFinite(value) ? value : 0;
+const finiteOrZero = (value) => (Number.isFinite(value) && value >= 0 ? value : 0);
 
 class BackPressureSampler {
     #cpuThreshold;
@@ -63,6 +63,7 @@ class BackPressureSampler {
     #containerMemRawHistogram = null;
     #activeReqHistogram = null;
     #p95LatencyHistogram = null;
+    #inactiveFileHistogram = null;
 
     #containerMemRawGauge = null;
     #inactiveFileGauge = null;
@@ -90,7 +91,8 @@ class BackPressureSampler {
 
         this.#episodeHistogram = registry.getSingleMetric('back_pressure_episode_rejections') || new Histogram({
             name: 'back_pressure_episode_rejections',
-            help: 'Requests rejected per overload episode — observed once when the episode ends',
+            help: 'Requests rejected per overload episode — observed once when the episode ends. ' +
+                'Absent/zero when no overload episode has completed yet.',
             buckets: [1, 50, 100, 250, 500, 1000],
             registers: [registry],
         });
@@ -211,6 +213,13 @@ class BackPressureSampler {
             registers: [registry],
         });
 
+        this.#inactiveFileHistogram = registry.getSingleMetric('back_pressure_container_memory_inactive_file_percent_histogram') || new Histogram({
+            name: 'back_pressure_container_memory_inactive_file_percent_histogram',
+            help: 'Distribution of inactive_file as percent of memory.max per sample interval',
+            buckets: [1, 5, 10, 25, 50, 70, 80, 90, 100],
+            registers: [registry],
+        });
+
         this.#memoryModeGauge = registry.getSingleMetric('back_pressure_container_memory_mode') || new Gauge({
             name: 'back_pressure_container_memory_mode',
             help: '1 = V1 mode (raw: memory.current/memory.max), 0 = V2 mode (effective: subtracts inactive_file)',
@@ -219,25 +228,29 @@ class BackPressureSampler {
 
         this.#memEventsHighCounter = registry.getSingleMetric('back_pressure_mem_events_high_total') || new client.Counter({
             name: 'back_pressure_mem_events_high_total',
-            help: 'Cumulative memory.events high events (memory usage exceeded the high boundary)',
+            help: 'Cumulative memory.events high events (memory usage exceeded the high boundary). ' +
+                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
             registers: [registry],
         });
 
         this.#memEventsMaxCounter = registry.getSingleMetric('back_pressure_mem_events_max_total') || new client.Counter({
             name: 'back_pressure_mem_events_max_total',
-            help: 'Cumulative memory.events max events (memory usage hit the hard limit)',
+            help: 'Cumulative memory.events max events (memory usage hit the hard limit). ' +
+                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
             registers: [registry],
         });
 
         this.#memEventsOomCounter = registry.getSingleMetric('back_pressure_mem_events_oom_total') || new client.Counter({
             name: 'back_pressure_mem_events_oom_total',
-            help: 'Cumulative memory.events oom events (OOM killer invoked)',
+            help: 'Cumulative memory.events oom events (OOM killer invoked). ' +
+                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
             registers: [registry],
         });
 
         this.#memEventsOomKillCounter = registry.getSingleMetric('back_pressure_mem_events_oom_kill_total') || new client.Counter({
             name: 'back_pressure_mem_events_oom_kill_total',
-            help: 'Cumulative memory.events oom_kill events (process killed by OOM killer)',
+            help: 'Cumulative memory.events oom_kill events (process killed by OOM killer). ' +
+                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
             registers: [registry],
         });
 
@@ -404,6 +417,7 @@ class BackPressureSampler {
         this.#lagHistogram.observe(parseFloat(lagP99.toFixed(2)));
         this.#containerMemHistogram.observe(parseFloat(containerMem.toFixed(2)));
         this.#containerMemRawHistogram.observe(parseFloat(finiteOrZero(this.#containerMemoryRawPercent).toFixed(2)));
+        this.#inactiveFileHistogram.observe(parseFloat(finiteOrZero(this.#inactiveFilePercent).toFixed(2)));
         this.#activeReqHistogram.observe(activeReqs);
         this.#p95LatencyHistogram.observe(parseFloat(p95.toFixed(2)));
 
