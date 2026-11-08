@@ -10,67 +10,222 @@ import {
 } from '../metrics.js';
 
 const READ_COMMANDS = new Set([
-    'get', 'mget', 'hget', 'hmget', 'hgetall',
-    'lrange', 'smembers', 'zrange', 'zrangebyscore',
-    'json.get', 'getrange', 'getbit',
-    'hkeys', 'hvals', 'hlen', 'hstrlen',
-    'lindex', 'llen', 'lpos',
-    'scard', 'sismember', 'srandmember',
-    'zcard', 'zcount', 'zlexcount', 'zrank', 'zrevrank',
-    'bitcount', 'bitpos',
-    'geodist', 'geohash', 'geopos', 'georadius', 'georadiusbymember',
+    'get',
+    'mget',
+    'hget',
+    'hmget',
+    'hgetall',
+    'lrange',
+    'smembers',
+    'zrange',
+    'zrangebyscore',
+    'json.get',
+    'getrange',
+    'getbit',
+    'hkeys',
+    'hvals',
+    'hlen',
+    'hstrlen',
+    'lindex',
+    'llen',
+    'lpos',
+    'scard',
+    'sismember',
+    'srandmember',
+    'zcard',
+    'zcount',
+    'zlexcount',
+    'zrank',
+    'zrevrank',
+    'bitcount',
+    'bitpos',
+    'geodist',
+    'geohash',
+    'geopos',
+    'georadius',
+    'georadiusbymember',
 ]);
 
 const KNOWN_COMMANDS = new Set([
     // reads
-    'get', 'mget', 'hget', 'hmget', 'hgetall',
-    'hkeys', 'hvals', 'hlen', 'hstrlen', 'hexists',
-    'lrange', 'lindex', 'llen', 'lpos',
-    'smembers', 'sismember', 'srandmember', 'scard',
-    'sinter', 'sunion', 'sdiff',
-    'zrange', 'zrevrange', 'zrangebyscore', 'zrevrangebyscore',
-    'zcard', 'zcount', 'zlexcount', 'zrank', 'zrevrank', 'zscore',
-    'getrange', 'getbit', 'strlen',
-    'bitcount', 'bitpos',
-    'geodist', 'geohash', 'geopos', 'georadius', 'georadiusbymember',
+    'get',
+    'mget',
+    'hget',
+    'hmget',
+    'hgetall',
+    'hkeys',
+    'hvals',
+    'hlen',
+    'hstrlen',
+    'hexists',
+    'lrange',
+    'lindex',
+    'llen',
+    'lpos',
+    'smembers',
+    'sismember',
+    'srandmember',
+    'scard',
+    'sinter',
+    'sunion',
+    'sdiff',
+    'zrange',
+    'zrevrange',
+    'zrangebyscore',
+    'zrevrangebyscore',
+    'zcard',
+    'zcount',
+    'zlexcount',
+    'zrank',
+    'zrevrank',
+    'zscore',
+    'getrange',
+    'getbit',
+    'strlen',
+    'bitcount',
+    'bitpos',
+    'geodist',
+    'geohash',
+    'geopos',
+    'georadius',
+    'georadiusbymember',
     'json.get',
     // writes
-    'set', 'setnx', 'setex', 'psetex', 'getset', 'getdel', 'getex',
-    'mset', 'msetnx',
-    'del', 'unlink',
-    'append', 'incr', 'decr', 'incrby', 'decrby', 'incrbyfloat',
-    'hset', 'hmset', 'hsetnx', 'hincrby', 'hincrbyfloat', 'hdel',
-    'lpush', 'rpush', 'lpushx', 'rpushx',
-    'lpop', 'rpop', 'lset', 'linsert', 'lrem', 'ltrim',
-    'blpop', 'brpop', 'brpoplpush',
-    'sadd', 'srem', 'spop', 'smove',
-    'sinterstore', 'sunionstore', 'sdiffstore',
-    'zadd', 'zrem', 'zincrby',
-    'zremrangebyrank', 'zremrangebyscore',
-    'zinterstore', 'zunionstore',
-    'json.set', 'json.del', 'json.arrappend', 'json.arrlen',
-    'json.objkeys', 'json.mget', 'json.type', 'json.numincrby',
-    'ft.search', 'ft.aggregate', 'ft.create', 'ft.dropindex',
+    'set',
+    'setnx',
+    'setex',
+    'psetex',
+    'getset',
+    'getdel',
+    'getex',
+    'mset',
+    'msetnx',
+    'del',
+    'unlink',
+    'append',
+    'incr',
+    'decr',
+    'incrby',
+    'decrby',
+    'incrbyfloat',
+    'hset',
+    'hmset',
+    'hsetnx',
+    'hincrby',
+    'hincrbyfloat',
+    'hdel',
+    'lpush',
+    'rpush',
+    'lpushx',
+    'rpushx',
+    'lpop',
+    'rpop',
+    'lset',
+    'linsert',
+    'lrem',
+    'ltrim',
+    'blpop',
+    'brpop',
+    'brpoplpush',
+    'sadd',
+    'srem',
+    'spop',
+    'smove',
+    'sinterstore',
+    'sunionstore',
+    'sdiffstore',
+    'zadd',
+    'zrem',
+    'zincrby',
+    'zremrangebyrank',
+    'zremrangebyscore',
+    'zinterstore',
+    'zunionstore',
+    'json.set',
+    'json.del',
+    'json.arrappend',
+    'json.arrlen',
+    'json.objkeys',
+    'json.mget',
+    'json.type',
+    'json.numincrby',
+    'ft.search',
+    'ft.aggregate',
+    'ft.create',
+    'ft.dropindex',
     // control
-    'ping', 'exists', 'expire', 'pexpire', 'expireat', 'persist',
-    'ttl', 'pttl', 'type', 'rename', 'renamenx',
-    'keys', 'scan', 'hscan', 'sscan', 'zscan',
-    'select', 'auth', 'info', 'dbsize', 'time',
-    'flushdb', 'flushall', 'echo', 'quit', 'wait',
-    'object', 'debug', 'dump', 'restore', 'migrate', 'move', 'sort', 'copy',
-    'eval', 'evalsha', 'script',
-    'publish', 'subscribe', 'psubscribe', 'unsubscribe', 'punsubscribe',
-    'xadd', 'xread', 'xreadgroup', 'xrange', 'xrevrange',
-    'xlen', 'xack', 'xdel', 'xtrim', 'xgroup', 'xinfo', 'xpending', 'xclaim',
-    'lmpop', 'zmpop',
-    'cluster', 'command', 'config', 'client',
-    'lolwut', 'latency', 'memory', 'module', 'slowlog', 'acl',
-    'reset', 'hello',
+    'ping',
+    'exists',
+    'expire',
+    'pexpire',
+    'expireat',
+    'persist',
+    'ttl',
+    'pttl',
+    'type',
+    'rename',
+    'renamenx',
+    'keys',
+    'scan',
+    'hscan',
+    'sscan',
+    'zscan',
+    'select',
+    'auth',
+    'info',
+    'dbsize',
+    'time',
+    'flushdb',
+    'flushall',
+    'echo',
+    'quit',
+    'wait',
+    'object',
+    'debug',
+    'dump',
+    'restore',
+    'migrate',
+    'move',
+    'sort',
+    'copy',
+    'eval',
+    'evalsha',
+    'script',
+    'publish',
+    'subscribe',
+    'psubscribe',
+    'unsubscribe',
+    'punsubscribe',
+    'xadd',
+    'xread',
+    'xreadgroup',
+    'xrange',
+    'xrevrange',
+    'xlen',
+    'xack',
+    'xdel',
+    'xtrim',
+    'xgroup',
+    'xinfo',
+    'xpending',
+    'xclaim',
+    'lmpop',
+    'zmpop',
+    'cluster',
+    'command',
+    'config',
+    'client',
+    'lolwut',
+    'latency',
+    'memory',
+    'module',
+    'slowlog',
+    'acl',
+    'reset',
+    'hello',
 ]);
 
-const CACHE_LOOKUP_COMMANDS = new Set([
-    'get', 'mget', 'hget', 'hmget', 'hgetall', 'json.get',
-]);
+const CACHE_LOOKUP_COMMANDS = new Set(['get', 'mget', 'hget', 'hmget', 'hgetall', 'json.get']);
 
 const WRAPPED = Symbol('redisWrapped');
 const EVENTS_REGISTERED = Symbol('redisEventsRegistered');
@@ -90,9 +245,7 @@ const extractRedisCommand = (cmd) => {
 };
 
 const getKeyPrefix = (args) => {
-    const key = Array.isArray(args)
-        ? (Array.isArray(args[0]) ? args[0][0] : args[0])
-        : args;
+    const key = Array.isArray(args) ? (Array.isArray(args[0]) ? args[0][0] : args[0]) : args;
 
     if (typeof key !== 'string' || key.length === 0) return 'unknown';
 
@@ -112,7 +265,6 @@ const getKeyPrefix = (args) => {
 
     return key.length > 30 ? key.slice(0, 30) + '...' : key;
 };
-
 
 const isCacheHit = (result) => {
     if (result == null) return false;
@@ -134,17 +286,14 @@ const isCacheHit = (result) => {
 const safeInc = (metric, labels) => {
     try {
         metric.inc(labels);
-    } catch {
-    }
+    } catch {}
 };
 
 const safeObserve = (metric, labels, value) => {
     try {
         metric.observe(labels, value);
-    } catch {
-    }
+    } catch {}
 };
-
 
 const trackCommandFast = (command, rawArg, result, error, startTime, collectDetails) => {
     const commandLabels = sanitizeLabels({ command });
@@ -166,13 +315,15 @@ const trackCommandFast = (command, rawArg, result, error, startTime, collectDeta
     }
 
     if (error != null) {
-        safeInc(redisConnectionErrors, sanitizeLabels({
-            error_type: error?.code || error?.name || 'UnknownError',
-            command,
-        }));
+        safeInc(
+            redisConnectionErrors,
+            sanitizeLabels({
+                error_type: error?.code || error?.name || 'UnknownError',
+                command,
+            })
+        );
     }
 };
-
 
 const buildSendCommandWrapper = (originalMethod, detailed, normalizedSampleRate) => {
     return function (...args) {
@@ -181,8 +332,7 @@ const buildSendCommandWrapper = (originalMethod, detailed, normalizedSampleRate)
             return originalMethod.apply(this, args);
         }
 
-        const collectDetails = detailed &&
-            (normalizedSampleRate >= 1 || Math.random() < normalizedSampleRate);
+        const collectDetails = detailed && (normalizedSampleRate >= 1 || Math.random() < normalizedSampleRate);
         const startTime = collectDetails ? process.hrtime.bigint() : null;
 
         let result;
@@ -216,8 +366,7 @@ const buildCallbackSendCommandWrapper = (originalMethod, detailed, normalizedSam
         if (command === 'unknown') {
             return originalMethod.apply(this, args);
         }
-        const collectDetails = detailed &&
-            (normalizedSampleRate >= 1 || Math.random() < normalizedSampleRate);
+        const collectDetails = detailed && (normalizedSampleRate >= 1 || Math.random() < normalizedSampleRate);
         const startTime = collectDetails ? process.hrtime.bigint() : null;
 
         const last = args[args.length - 1];
@@ -269,8 +418,7 @@ const wrapMulti = (target, detailed, normalizedSampleRate) => {
         const originalExec = multi.exec.bind(multi);
 
         multi.exec = function (...execArgs) {
-            const collectDetails = detailed &&
-                (normalizedSampleRate >= 1 || Math.random() < normalizedSampleRate);
+            const collectDetails = detailed && (normalizedSampleRate >= 1 || Math.random() < normalizedSampleRate);
             const startTime = collectDetails ? process.hrtime.bigint() : null;
 
             const finish = (result, pipelineError) => {
@@ -283,10 +431,13 @@ const wrapMulti = (target, detailed, normalizedSampleRate) => {
                 }
 
                 if (pipelineError != null) {
-                    safeInc(redisConnectionErrors, sanitizeLabels({
-                        error_type: pipelineError?.code || pipelineError?.name || 'PipelineError',
-                        command: 'pipeline',
-                    }));
+                    safeInc(
+                        redisConnectionErrors,
+                        sanitizeLabels({
+                            error_type: pipelineError?.code || pipelineError?.name || 'PipelineError',
+                            command: 'pipeline',
+                        })
+                    );
                     return;
                 }
                 if (Array.isArray(result)) {
@@ -295,17 +446,22 @@ const wrapMulti = (target, detailed, normalizedSampleRate) => {
                         const entry = result[i];
                         const cmdErr = Array.isArray(entry) ? entry[0] : null;
                         const cmdData = commands?.[i];
-                        const cmd = cmdData ? extractRedisCommand(Array.isArray(cmdData) ? cmdData[0] : cmdData) : 'unknown';
+                        const cmd = cmdData
+                            ? extractRedisCommand(Array.isArray(cmdData) ? cmdData[0] : cmdData)
+                            : 'unknown';
 
                         if (cmd !== 'unknown') {
                             safeInc(redisCommands, sanitizeLabels({ command: cmd }));
                         }
 
                         if (cmdErr != null) {
-                            safeInc(redisConnectionErrors, sanitizeLabels({
-                                error_type: cmdErr?.code || cmdErr?.name || 'PipelineCommandError',
-                                command: cmd !== 'unknown' ? cmd : 'pipeline',
-                            }));
+                            safeInc(
+                                redisConnectionErrors,
+                                sanitizeLabels({
+                                    error_type: cmdErr?.code || cmdErr?.name || 'PipelineCommandError',
+                                    command: cmd !== 'unknown' ? cmd : 'pipeline',
+                                })
+                            );
                         }
                     }
                 }
@@ -321,8 +477,14 @@ const wrapMulti = (target, detailed, normalizedSampleRate) => {
 
             if (execResult !== null && execResult !== undefined && typeof execResult.then === 'function') {
                 return execResult.then(
-                    (value) => { finish(value, null); return value; },
-                    (err) => { finish(null, err); throw err; }
+                    (value) => {
+                        finish(value, null);
+                        return value;
+                    },
+                    (err) => {
+                        finish(null, err);
+                        throw err;
+                    }
                 );
             }
 
@@ -346,24 +508,35 @@ const setupConnectionTracking = (client, target) => {
     const eventClient = typeof target.on === 'function' ? target : client;
     if (!eventClient || typeof eventClient.on !== 'function') return;
     if (target[EVENTS_REGISTERED] || client[EVENTS_REGISTERED]) return;
-    const setConnected = () => { try { redisConnectionState.set(sanitizeLabels(), 1); } catch { } };
-    const setDisconnected = () => { try { redisConnectionState.set(sanitizeLabels(), 0); } catch { } };
+    const setConnected = () => {
+        try {
+            redisConnectionState.set(sanitizeLabels(), 1);
+        } catch {}
+    };
+    const setDisconnected = () => {
+        try {
+            redisConnectionState.set(sanitizeLabels(), 0);
+        } catch {}
+    };
 
-    ['connect', 'ready', 'reconnecting'].forEach(ev => eventClient.on(ev, setConnected));
-    ['end', 'close', 'error'].forEach(ev => eventClient.on(ev, setDisconnected));
+    ['connect', 'ready', 'reconnecting'].forEach((ev) => eventClient.on(ev, setConnected));
+    ['end', 'close', 'error'].forEach((ev) => eventClient.on(ev, setDisconnected));
 
     target[EVENTS_REGISTERED] = true;
     client[EVENTS_REGISTERED] = true;
 
     const isConnected =
-        target.isReady === true || target.isOpen === true ||
-        client.isReady === true || client.isOpen === true ||
-        target.status === 'ready' || client.status === 'ready' ||
-        target.status === 'connect' || client.status === 'connect';
+        target.isReady === true ||
+        target.isOpen === true ||
+        client.isReady === true ||
+        client.isOpen === true ||
+        target.status === 'ready' ||
+        client.status === 'ready' ||
+        target.status === 'connect' ||
+        client.status === 'connect';
 
     if (isConnected) setConnected();
 };
-
 
 /**
  * Instruments a Redis client with Prometheus metrics.
@@ -404,10 +577,7 @@ export const trackRedis = (client, options = {}) => {
     client[WRAPPED] = true;
     target[WRAPPED] = true;
 
-    const {
-        detailed = true,
-        sampleRate = 1.0,
-    } = options;
+    const { detailed = true, sampleRate = 1.0 } = options;
 
     const normalizedSampleRate = Math.max(0, Math.min(1, Number(sampleRate) || 0));
 
@@ -422,13 +592,11 @@ export const trackRedis = (client, options = {}) => {
             if (nodesWrapped) return;
             nodesWrapped = true;
             try {
-                const nodes = typeof client.nodes === 'function'
-                    ? client.nodes('master')
-                    : [];
+                const nodes = typeof client.nodes === 'function' ? client.nodes('master') : [];
                 for (const node of nodes) {
                     if (!node[WRAPPED]) trackRedis(node, options);
                 }
-            } catch { }
+            } catch {}
         };
 
         if (client.isReady || client.status === 'ready') {
@@ -442,16 +610,14 @@ export const trackRedis = (client, options = {}) => {
     }
 
     if (typeof target.sendCommand === 'function') {
-        target.sendCommand = buildSendCommandWrapper(
-            target.sendCommand.bind(target), detailed, normalizedSampleRate
-        );
+        target.sendCommand = buildSendCommandWrapper(target.sendCommand.bind(target), detailed, normalizedSampleRate);
     } else if (typeof target.call === 'function') {
-        target.call = buildSendCommandWrapper(
-            target.call.bind(target), detailed, normalizedSampleRate
-        );
+        target.call = buildSendCommandWrapper(target.call.bind(target), detailed, normalizedSampleRate);
     } else if (typeof target.send_command === 'function') {
         target.send_command = buildCallbackSendCommandWrapper(
-            target.send_command.bind(target), detailed, normalizedSampleRate
+            target.send_command.bind(target),
+            detailed,
+            normalizedSampleRate
         );
     }
 

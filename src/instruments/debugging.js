@@ -7,8 +7,9 @@ export const initDebuggingMetrics = () => {
     _registered = true;
 
     process.on('unhandledRejection', (reason) => {
+        const rawReason = reason?.message || reason?.toString() || 'unknown';
         unhandledRejectionsTotal.inc({
-            reason: reason?.message || reason?.toString() || 'unknown',
+            reason: rawReason.slice(0, 150),
             ...defaultLabelValues,
         });
     });

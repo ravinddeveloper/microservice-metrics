@@ -1,20 +1,17 @@
 import client from 'prom-client';
 import config from './config.js';
 import { mongooseMetricsPlugin, mongooseDefaultMetricsPlugin } from './instruments/mongoose.js';
-import {
-    ConnectorMetrics,
-    MicroflowMetrics,
-    DocumentDownloadMetrics,
-    DocumentUploadMetrics,
-    GeneratePdf,
-    PiscinaMetrics,
-    AsyncNodeMetrics,
-} from './instruments/platform.js';
 import os from 'os';
 import v8 from 'v8';
 import cron from 'node-cron';
 
 const { Registry, Counter, Histogram, Gauge, Summary, collectDefaultMetrics, Pushgateway } = client;
+
+// B1 Fix: declare module-level mutable state at the top before any function uses them
+let _cronTask = null;
+let _resetIntervalTimer = null;
+let _pushIntervalTimer = null;
+let _defaultMetricsCollected = false;
 
 const registry = new Registry();
 
@@ -43,16 +40,6 @@ try {
 } catch (err) {
     console.error('Failed to set default labels on registry:', err);
 }
-
-const Platform = {
-    ConnectorMetrics: new ConnectorMetrics(config),
-    MicroflowMetrics: new MicroflowMetrics(config),
-    DocumentDownloadMetrics: new DocumentDownloadMetrics(config),
-    DocumentUploadMetrics: new DocumentUploadMetrics(config),
-    GeneratePdf: new GeneratePdf(config),
-    PiscinaMetrics: new PiscinaMetrics(),
-    AsyncNodeMetrics: new AsyncNodeMetrics(config),
-};
 
 const httpRequestsTotal = new Counter({
     name: 'http_requests_total',
@@ -120,7 +107,7 @@ const mongooseQueryDuration = new Histogram({
     name: 'mongoose_query_duration_seconds',
     help: 'Mongoose query latency in seconds',
     labelNames: ['collection', 'operation', ...DEFAULT_LABELS],
-    buckets: config.mongoBucket,
+    buckets: config.mongoBuckets || config.mongoBucket || [0.05, 0.1, 0.25, 0.5, 1, 5],
     registers: [registry],
 });
 
@@ -142,10 +129,9 @@ const mongooseAggregationDuration = new Histogram({
     name: 'mongoose_aggregation_duration_seconds',
     help: 'Mongoose aggregation latency in seconds',
     labelNames: ['collection', ...DEFAULT_LABELS],
-    buckets: config.mongoBucket,
+    buckets: config.mongoBuckets || config.mongoBucket || [0.05, 0.1, 0.25, 0.5, 1, 5],
     registers: [registry],
 });
-
 
 const mongooseReconnectsTotal = new Counter({
     name: 'mongoose_reconnects_total',
@@ -165,9 +151,7 @@ const SLOW_QUERY_LIMIT = parseInt(process.env.SLOW_QUERY_LIMIT) || 10;
 const slowQueryTracker = {
     _heap: [],
     observe(collection, operation, durationSeconds, query) {
-        const minDuration = this._heap.length >= SLOW_QUERY_LIMIT
-            ? this._heap[0].duration
-            : -Infinity;
+        const minDuration = this._heap.length >= SLOW_QUERY_LIMIT ? this._heap[0].duration : -Infinity;
 
         if (durationSeconds > minDuration || this._heap.length < SLOW_QUERY_LIMIT) {
             if (this._heap.length >= SLOW_QUERY_LIMIT) {
@@ -183,7 +167,13 @@ const slowQueryTracker = {
         const sorted = [...this._heap].sort((a, b) => b.duration - a.duration);
         sorted.forEach((entry, idx) => {
             mongooseSlowQueriesGauge.set(
-                { rank: idx + 1, collection: entry.collection, operation: entry.operation, query: entry.query, ...defaultLabelValues },
+                {
+                    rank: idx + 1,
+                    collection: entry.collection,
+                    operation: entry.operation,
+                    query: entry.query,
+                    ...defaultLabelValues,
+                },
                 entry.duration
             );
         });
@@ -262,7 +252,6 @@ const vmStorageUsageBytes = new Gauge({
     registers: [registry],
 });
 
-
 const appUptimeSeconds = new Gauge({
     name: 'app_uptime_seconds',
     help: 'Application uptime in seconds',
@@ -272,7 +261,7 @@ const appUptimeSeconds = new Gauge({
         if (config.getUpTime) {
             this.set(defaultLabelValues, process.uptime());
         }
-    }
+    },
 });
 
 const vmUptimeSeconds = new Gauge({
@@ -284,7 +273,7 @@ const vmUptimeSeconds = new Gauge({
         if (config.getVmUpTime) {
             this.set(defaultLabelValues, os.uptime());
         }
-    }
+    },
 });
 
 const nodejsHeapSizeLimitBytes = new Gauge({
@@ -294,9 +283,8 @@ const nodejsHeapSizeLimitBytes = new Gauge({
     registers: [registry],
     collect() {
         this.set(defaultLabelValues, v8.getHeapStatistics().heap_size_limit);
-    }
+    },
 });
-
 
 const metricsPayloadSizeBytes = new Gauge({
     name: 'metrics_payload_size_bytes',
@@ -327,7 +315,6 @@ const httpConnectionErrorsTotal = new Counter({
     registers: [registry],
 });
 
-
 const httpClientActiveConnections = new Gauge({
     name: 'http_client_active_connections',
     help: 'Number of active HTTP client connections',
@@ -349,7 +336,6 @@ const httpClientErrorsTotal = new Counter({
     labelNames: ['host', 'error_type', ...DEFAULT_LABELS],
     registers: [registry],
 });
-
 
 const networkBytesReceivedTotal = new Counter({
     name: 'network_bytes_received_total',
@@ -575,29 +561,58 @@ async function initMetrics(options = {}) {
         trackRedis(config.redis.client);
     }
 
-    if (config.perf_metrics_enabled) {
+    if (config.circuitBreaker?.enabled) {
+        const { initCircuitBreaker } = await import('./instruments/circuitBreaker.js');
+        initCircuitBreaker();
+    }
+
+    if (config.perfMetricsEnabled || config.perf_metrics_enabled) {
         const { initPerfHooksMetrics } = await import('./instruments/perfHooks.js');
         initPerfHooksMetrics();
+    }
+
+    // F1 Fix: auto-wire vmMonitoring when enabled in options/config
+    if (config.vmMonitoring) {
+        const { initVmMonitoring } = await import('./instruments/vmMonitor.js');
+        initVmMonitoring();
+    }
+
+    // F1 Fix: auto-wire debuggingMetrics when enabled in options/config
+    if (config.debuggingMetrics) {
+        const { initDebuggingMetrics } = await import('./instruments/debugging.js');
+        initDebuggingMetrics();
     }
 
     if (config.mongoose) {
         config.mongoose.plugin(mongooseMetricsPlugin);
 
         if (typeof config.mongoose.modelNames === 'function') {
-            config.mongoose.modelNames().forEach(modelName => {
+            config.mongoose.modelNames().forEach((modelName) => {
                 const schema = config.mongoose.model(modelName).schema;
                 if (schema) {
                     schema.plugin(mongooseMetricsPlugin);
                 }
             });
         }
-    } else if (config.mongo.mongoOperationMetrics) {
-        mongooseDefaultMetricsPlugin();
+    } else if (config.mongo?.mongoOperationMetrics && config.mongo?.instance) {
+        // B2 Fix: mongooseDefaultMetricsPlugin requires a mongoose instance to be useful;
+        // it must be provided via config.mongo.instance or the user calls it directly.
+        mongooseDefaultMetricsPlugin(config.mongo.instance);
     }
 
+    // B5 Fix: reset defaultLabelValues to base values, then apply options — avoids cross-call accumulation
     defaultLabelValues.service_name = config.serviceName || 'unknown';
     defaultLabelValues.environment = config.environment || '';
     defaultLabelValues.instance = config.instance || 'unknown';
+    // Clear any keys added by previous calls that are not in the base set
+    for (const key of Object.keys(defaultLabelValues)) {
+        if (!['service_name', 'environment', 'instance'].includes(key)) {
+            delete defaultLabelValues[key];
+        }
+    }
+    if (options?.defaultLabels && typeof options.defaultLabels === 'object') {
+        Object.assign(defaultLabelValues, options.defaultLabels);
+    }
 
     try {
         registry.setDefaultLabels(defaultLabelValues);
@@ -607,36 +622,56 @@ async function initMetrics(options = {}) {
 
     try {
         redisConnectionState.set(sanitizeLabels(), 1);
-    } catch (err) { }
+    } catch (err) {}
     try {
         rabbitmqConnectionState.set(sanitizeLabels(), 1);
-    } catch (err) { }
+    } catch (err) {}
 
-    if (config.includeSystemMetrics) {
-        collectDefaultMetrics({ register: registry, labels: defaultLabelValues });
+    if (config.includeSystemMetrics && !_defaultMetricsCollected) {
+        try {
+            collectDefaultMetrics({ register: registry, labels: defaultLabelValues });
+            _defaultMetricsCollected = true;
+        } catch (_) {
+            // Already registered
+        }
     }
 
     if (config.pushgatewayUrl) {
         const gateway = new Pushgateway(config.pushgatewayUrl, [], registry);
-        gateway.pushAdd({ jobName: config.serviceName })
-            .then(() => {
-                if (config.resetAfterScrape) registry.resetMetrics();
-            })
-            .catch(err => console.error('Error pushing metrics:', err));
+
+        const push = () =>
+            gateway
+                .pushAdd({ jobName: config.serviceName })
+                .then(() => {
+                    if (config.resetAfterScrape) registry.resetMetrics();
+                })
+                .catch((err) => console.error('Error pushing metrics:', err));
+
+        // F3 Fix: push on startup, then push periodically if pushIntervalSeconds is set
+        push();
+        if (config.pushIntervalSeconds) {
+            if (_pushIntervalTimer) clearInterval(_pushIntervalTimer);
+            _pushIntervalTimer = setInterval(push, config.pushIntervalSeconds * 1000);
+            if (_pushIntervalTimer.unref) _pushIntervalTimer.unref();
+        }
     } else if (config.resetIntervalSeconds) {
-        const clearTimer = setInterval(() => {
+        if (_resetIntervalTimer) clearInterval(_resetIntervalTimer);
+        _resetIntervalTimer = setInterval(() => {
             registry.resetMetrics();
         }, config.resetIntervalSeconds * 1000);
-        if (clearTimer.unref) clearTimer.unref();
+        if (_resetIntervalTimer.unref) _resetIntervalTimer.unref();
     }
 
     const hasToReset = config.metricsToReset && config.metricsToReset.length > 0;
     const hasNotToReset = config.metricsNotToReset && config.metricsNotToReset.length > 0;
 
-    if ((hasToReset || hasNotToReset) && config.resetScheduler) {
-        cron.schedule(config.resetScheduler, () => {
+    if (config.resetScheduler && (hasToReset || hasNotToReset)) {
+        if (_cronTask) {
+            _cronTask.stop();
+        }
+        _cronTask = cron.schedule(config.resetScheduler, () => {
             if (hasToReset) {
-                config.metricsToReset.forEach(metricOrName => {
+                config.metricsToReset.forEach((metricOrName) => {
                     let metric = metricOrName;
                     if (typeof metricOrName === 'string') {
                         metric = registry.getSingleMetric(metricOrName);
@@ -646,16 +681,31 @@ async function initMetrics(options = {}) {
                     }
                 });
             } else if (hasNotToReset) {
-                const excludeNames = config.metricsNotToReset.map(m => typeof m === 'string' ? m : m.name);
-                registry.getMetricsAsArray().forEach(metric => {
+                const excludeNames = config.metricsNotToReset.map((m) => (typeof m === 'string' ? m : m.name));
+                registry.getMetricsAsArray().forEach((metric) => {
                     if (!excludeNames.includes(metric.name) && typeof metric.reset === 'function') {
                         metric.reset();
                     }
                 });
             }
         });
-
     }
+}
+
+function stopMetrics() {
+    if (_cronTask) {
+        _cronTask.stop();
+        _cronTask = null;
+    }
+    if (_resetIntervalTimer) {
+        clearInterval(_resetIntervalTimer);
+        _resetIntervalTimer = null;
+    }
+    if (_pushIntervalTimer) {
+        clearInterval(_pushIntervalTimer);
+        _pushIntervalTimer = null;
+    }
+    _defaultMetricsCollected = false;
 }
 
 export {
@@ -683,8 +733,8 @@ export {
     mongooseReconnectsTotal,
     mongooseMetricsPlugin,
     initMetrics,
+    stopMetrics,
     nodejsHeapSizeLimitBytes,
-    Platform,
     mongooseSlowQueriesGauge,
     slowQueryTracker,
     httpActiveConnections,
@@ -742,8 +792,8 @@ export const CustomCounter = (name, help, labelNames) => {
         help,
         labelNames: [...DEFAULT_LABELS, ...labelNames],
         registers: [registry],
-    })
-}
+    });
+};
 
 export const CustomGauge = (name, help, labelNames) => {
     return new Gauge({
@@ -751,8 +801,8 @@ export const CustomGauge = (name, help, labelNames) => {
         help,
         labelNames: [...DEFAULT_LABELS, ...labelNames],
         registers: [registry],
-    })
-}
+    });
+};
 
 export const CustomHistogram = (name, help, labelNames, buckets = config.buckets) => {
     return new Histogram({
@@ -761,8 +811,8 @@ export const CustomHistogram = (name, help, labelNames, buckets = config.buckets
         labelNames: [...DEFAULT_LABELS, ...labelNames],
         buckets,
         registers: [registry],
-    })
-}
+    });
+};
 
 export const CustomSummary = (name, help, labelNames) => {
     return new Summary({
@@ -773,5 +823,75 @@ export const CustomSummary = (name, help, labelNames) => {
         maxAgeSeconds: 600,
         ageBuckets: 5,
         registers: [registry],
-    })
+    });
+};
+
+/**
+ * Creates a Prometheus Counter registered with default microservice labels.
+ */
+export const createCounter = ({ name, help, labelNames = [], registers = [registry] }) => {
+    return new Counter({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        registers,
+    });
+};
+
+/**
+ * Creates a Prometheus Gauge registered with default microservice labels.
+ */
+export const createGauge = ({ name, help, labelNames = [], registers = [registry] }) => {
+    return new Gauge({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        registers,
+    });
+};
+
+/**
+ * Creates a Prometheus Histogram registered with default microservice labels and configurable buckets.
+ */
+export const createHistogram = ({ name, help, labelNames = [], buckets = config.buckets, registers = [registry] }) => {
+    return new Histogram({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        buckets,
+        registers,
+    });
+};
+
+/**
+ * Creates a Prometheus Summary registered with default microservice labels.
+ */
+export const createSummary = ({
+    name,
+    help,
+    labelNames = [],
+    percentiles = [0.5, 0.9, 0.95, 0.99],
+    maxAgeSeconds = 600,
+    ageBuckets = 5,
+    registers = [registry],
+}) => {
+    return new Summary({
+        name,
+        help,
+        labelNames: [...DEFAULT_LABELS, ...labelNames],
+        percentiles,
+        maxAgeSeconds,
+        ageBuckets,
+        registers,
+    });
+};
+
+/**
+ * Gathers and aggregates Prometheus metrics from all Node.js cluster / PM2 worker processes.
+ *
+ * @returns {Promise<string>}
+ */
+export async function getClusterMetrics() {
+    const aggregator = new client.AggregatorRegistry();
+    return aggregator.clusterMetrics();
 }

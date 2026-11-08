@@ -5,10 +5,11 @@ import { registry } from '../metrics.js';
 import config from '../config.js';
 import client from 'prom-client';
 import { getCpuPercent, getActiveRequests, getP95Latency } from './runtimeState.js';
+import { sendJson } from '../utils/framework.js';
 
 const { Histogram, Gauge } = client;
 
-const EXEMPT_PATHS = new Set(['/metrics', '/health', '/ready', '/v1/health-check', '/v1/metrics']);
+const EXEMPT_PATHS = new Set(['/metrics', '/health', '/ready']);
 const finiteOrZero = (value) => (Number.isFinite(value) && value >= 0 ? value : 0);
 
 class BackPressureSampler {
@@ -89,177 +90,235 @@ class BackPressureSampler {
         this.#lagMonitor = monitorEventLoopDelay({ resolution: 20 });
         this.#lagMonitor.enable();
 
-        this.#episodeHistogram = registry.getSingleMetric('back_pressure_episode_rejections') || new Histogram({
-            name: 'back_pressure_episode_rejections',
-            help: 'Requests rejected per overload episode — observed once when the episode ends. ' +
-                'Absent/zero when no overload episode has completed yet.',
-            buckets: [1, 50, 100, 250, 500, 1000],
-            registers: [registry],
-        });
+        this.#episodeHistogram =
+            registry.getSingleMetric('back_pressure_episode_rejections') ||
+            new Histogram({
+                name: 'back_pressure_episode_rejections',
+                help:
+                    'Requests rejected per overload episode — observed once when the episode ends. ' +
+                    'Absent/zero when no overload episode has completed yet.',
+                buckets: [1, 50, 100, 250, 500, 1000],
+                registers: [registry],
+            });
 
-        this.#cpuGauge = registry.getSingleMetric('back_pressure_cpu_percent') || new Gauge({
-            name: 'back_pressure_cpu_percent',
-            help: 'EMA-smoothed CPU usage percent (α=0.35) sampled by back pressure',
-            registers: [registry],
-        });
+        this.#cpuGauge =
+            registry.getSingleMetric('back_pressure_cpu_percent') ||
+            new Gauge({
+                name: 'back_pressure_cpu_percent',
+                help: 'EMA-smoothed CPU usage percent (α=0.35) sampled by back pressure',
+                registers: [registry],
+            });
 
-        this.#cpuHistogram = registry.getSingleMetric('back_pressure_cpu_percent_histogram') || new Histogram({
-            name: 'back_pressure_cpu_percent_histogram',
-            help: 'Distribution of EMA-smoothed CPU usage percent sampled by back pressure',
-            buckets: [10, 25, 50, 70, 80, 85, 90, 95, 100],
-            registers: [registry],
-        });
+        this.#cpuHistogram =
+            registry.getSingleMetric('back_pressure_cpu_percent_histogram') ||
+            new Histogram({
+                name: 'back_pressure_cpu_percent_histogram',
+                help: 'Distribution of EMA-smoothed CPU usage percent sampled by back pressure',
+                buckets: [10, 25, 50, 70, 80, 85, 90, 95, 100],
+                registers: [registry],
+            });
 
-        this.#heapGauge = registry.getSingleMetric('back_pressure_heap_percent') || new Gauge({
-            name: 'back_pressure_heap_percent',
-            help: 'Current heap used percent sampled by back pressure',
-            registers: [registry],
-        });
+        this.#heapGauge =
+            registry.getSingleMetric('back_pressure_heap_percent') ||
+            new Gauge({
+                name: 'back_pressure_heap_percent',
+                help: 'Current heap used percent sampled by back pressure',
+                registers: [registry],
+            });
 
-        this.#heapHistogram = registry.getSingleMetric('back_pressure_heap_percent_histogram') || new Histogram({
-            name: 'back_pressure_heap_percent_histogram',
-            help: 'Distribution of heap used percent sampled by back pressure',
-            buckets: [10, 25, 50, 70, 80, 85, 90, 95, 100],
-            registers: [registry],
-        });
+        this.#heapHistogram =
+            registry.getSingleMetric('back_pressure_heap_percent_histogram') ||
+            new Histogram({
+                name: 'back_pressure_heap_percent_histogram',
+                help: 'Distribution of heap used percent sampled by back pressure',
+                buckets: [10, 25, 50, 70, 80, 85, 90, 95, 100],
+                registers: [registry],
+            });
 
-        this.#eluGauge = registry.getSingleMetric('back_pressure_event_loop_utilization') || new Gauge({
-            name: 'back_pressure_event_loop_utilization',
-            help: 'Event loop utilization ratio (0-1) per sample interval — replaces raw lag ms',
-            registers: [registry],
-        });
+        this.#eluGauge =
+            registry.getSingleMetric('back_pressure_event_loop_utilization') ||
+            new Gauge({
+                name: 'back_pressure_event_loop_utilization',
+                help: 'Event loop utilization ratio (0-1) per sample interval — replaces raw lag ms',
+                registers: [registry],
+            });
 
-        this.#eluHistogram = registry.getSingleMetric('back_pressure_event_loop_utilization_histogram') || new Histogram({
-            name: 'back_pressure_event_loop_utilization_histogram',
-            help: 'Distribution of event loop utilization ratio (0-1) per sample interval',
-            buckets: [0.1, 0.25, 0.5, 0.7, 0.8, 0.85, 0.9, 0.95, 1],
-            registers: [registry],
-        });
+        this.#eluHistogram =
+            registry.getSingleMetric('back_pressure_event_loop_utilization_histogram') ||
+            new Histogram({
+                name: 'back_pressure_event_loop_utilization_histogram',
+                help: 'Distribution of event loop utilization ratio (0-1) per sample interval',
+                buckets: [0.1, 0.25, 0.5, 0.7, 0.8, 0.85, 0.9, 0.95, 1],
+                registers: [registry],
+            });
 
-        this.#lagGauge = registry.getSingleMetric('back_pressure_event_loop_lag_p99_ms') || new Gauge({
-            name: 'back_pressure_event_loop_lag_p99_ms',
-            help: 'P99 event loop lag in milliseconds (monitorEventLoopDelay, reset each interval)',
-            registers: [registry],
-        });
+        this.#lagGauge =
+            registry.getSingleMetric('back_pressure_event_loop_lag_p99_ms') ||
+            new Gauge({
+                name: 'back_pressure_event_loop_lag_p99_ms',
+                help: 'P99 event loop lag in milliseconds (monitorEventLoopDelay, reset each interval)',
+                registers: [registry],
+            });
 
-        this.#lagHistogram = registry.getSingleMetric('back_pressure_event_loop_lag_p99_ms_histogram') || new Histogram({
-            name: 'back_pressure_event_loop_lag_p99_ms_histogram',
-            help: 'Distribution of P99 event loop lag in milliseconds per sample interval',
-            buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000],
-            registers: [registry],
-        });
+        this.#lagHistogram =
+            registry.getSingleMetric('back_pressure_event_loop_lag_p99_ms_histogram') ||
+            new Histogram({
+                name: 'back_pressure_event_loop_lag_p99_ms_histogram',
+                help: 'Distribution of P99 event loop lag in milliseconds per sample interval',
+                buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000],
+                registers: [registry],
+            });
 
-        this.#overloadedGauge = registry.getSingleMetric('back_pressure_overloaded') || new Gauge({
-            name: 'back_pressure_overloaded',
-            help: 'Back pressure active state: 1 = overloaded, 0 = normal',
-            registers: [registry],
-        });
+        this.#overloadedGauge =
+            registry.getSingleMetric('back_pressure_overloaded') ||
+            new Gauge({
+                name: 'back_pressure_overloaded',
+                help: 'Back pressure active state: 1 = overloaded, 0 = normal',
+                registers: [registry],
+            });
 
-        this.#containerMemGauge = registry.getSingleMetric('back_pressure_container_memory_percent') || new Gauge({
-            name: 'back_pressure_container_memory_percent',
-            help: 'Container cgroup memory usage percent',
-            registers: [registry],
-        });
+        this.#containerMemGauge =
+            registry.getSingleMetric('back_pressure_container_memory_percent') ||
+            new Gauge({
+                name: 'back_pressure_container_memory_percent',
+                help: 'Container cgroup memory usage percent',
+                registers: [registry],
+            });
 
-        this.#containerMemHistogram = registry.getSingleMetric('back_pressure_container_memory_percent_histogram') || new Histogram({
-            name: 'back_pressure_container_memory_percent_histogram',
-            help: 'Distribution of container cgroup memory usage percent',
-            buckets: [10, 25, 50, 70, 80, 85, 90, 95, 100],
-            registers: [registry],
-        });
+        this.#containerMemHistogram =
+            registry.getSingleMetric('back_pressure_container_memory_percent_histogram') ||
+            new Histogram({
+                name: 'back_pressure_container_memory_percent_histogram',
+                help: 'Distribution of container cgroup memory usage percent',
+                buckets: [10, 25, 50, 70, 80, 85, 90, 95, 100],
+                registers: [registry],
+            });
 
-        this.#activeReqGauge = registry.getSingleMetric('back_pressure_active_requests') || new Gauge({
-            name: 'back_pressure_active_requests',
-            help: 'Current number of in-flight requests',
-            registers: [registry],
-        });
+        this.#activeReqGauge =
+            registry.getSingleMetric('back_pressure_active_requests') ||
+            new Gauge({
+                name: 'back_pressure_active_requests',
+                help: 'Current number of in-flight requests',
+                registers: [registry],
+            });
 
-        this.#activeReqHistogram = registry.getSingleMetric('back_pressure_active_requests_histogram') || new Histogram({
-            name: 'back_pressure_active_requests_histogram',
-            help: 'Distribution of in-flight request counts per sample interval',
-            buckets: [10, 50, 100, 250, 500, 1000, 2500],
-            registers: [registry],
-        });
+        this.#activeReqHistogram =
+            registry.getSingleMetric('back_pressure_active_requests_histogram') ||
+            new Histogram({
+                name: 'back_pressure_active_requests_histogram',
+                help: 'Distribution of in-flight request counts per sample interval',
+                buckets: [10, 50, 100, 250, 500, 1000, 2500],
+                registers: [registry],
+            });
 
-        this.#p95LatencyGauge = registry.getSingleMetric('back_pressure_p95_latency_ms') || new Gauge({
-            name: 'back_pressure_p95_latency_ms',
-            help: 'P95 request latency in ms (rolling 5-min window)',
-            registers: [registry],
-        });
+        this.#p95LatencyGauge =
+            registry.getSingleMetric('back_pressure_p95_latency_ms') ||
+            new Gauge({
+                name: 'back_pressure_p95_latency_ms',
+                help: 'P95 request latency in ms (rolling 5-min window)',
+                registers: [registry],
+            });
 
-        this.#p95LatencyHistogram = registry.getSingleMetric('back_pressure_p95_latency_ms_histogram') || new Histogram({
-            name: 'back_pressure_p95_latency_ms_histogram',
-            help: 'Distribution of P95 request latency in ms (rolling 5-min window)',
-            buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500],
-            registers: [registry],
-        });
+        this.#p95LatencyHistogram =
+            registry.getSingleMetric('back_pressure_p95_latency_ms_histogram') ||
+            new Histogram({
+                name: 'back_pressure_p95_latency_ms_histogram',
+                help: 'Distribution of P95 request latency in ms (rolling 5-min window)',
+                buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500],
+                registers: [registry],
+            });
 
-        this.#containerMemRawGauge = registry.getSingleMetric('back_pressure_container_memory_raw_percent') || new Gauge({
-            name: 'back_pressure_container_memory_raw_percent',
-            help: 'Raw cgroup memory usage percent: memory.current / memory.max (before inactive_file subtraction)',
-            registers: [registry],
-        });
+        this.#containerMemRawGauge =
+            registry.getSingleMetric('back_pressure_container_memory_raw_percent') ||
+            new Gauge({
+                name: 'back_pressure_container_memory_raw_percent',
+                help: 'Raw cgroup memory usage percent: memory.current / memory.max (before inactive_file subtraction)',
+                registers: [registry],
+            });
 
-        this.#containerMemRawHistogram = registry.getSingleMetric('back_pressure_container_memory_raw_percent_histogram') || new Histogram({
-            name: 'back_pressure_container_memory_raw_percent_histogram',
-            help: 'Distribution of raw cgroup memory usage percent',
-            buckets: [10, 25, 50, 70, 80, 85, 90, 95, 100],
-            registers: [registry],
-        });
+        this.#containerMemRawHistogram =
+            registry.getSingleMetric('back_pressure_container_memory_raw_percent_histogram') ||
+            new Histogram({
+                name: 'back_pressure_container_memory_raw_percent_histogram',
+                help: 'Distribution of raw cgroup memory usage percent',
+                buckets: [10, 25, 50, 70, 80, 85, 90, 95, 100],
+                registers: [registry],
+            });
 
-        this.#inactiveFileGauge = registry.getSingleMetric('back_pressure_container_memory_inactive_file_percent') || new Gauge({
-            name: 'back_pressure_container_memory_inactive_file_percent',
-            help: 'inactive_file as percent of memory.max — the delta between raw and effective memory',
-            registers: [registry],
-        });
+        this.#inactiveFileGauge =
+            registry.getSingleMetric('back_pressure_container_memory_inactive_file_percent') ||
+            new Gauge({
+                name: 'back_pressure_container_memory_inactive_file_percent',
+                help: 'inactive_file as percent of memory.max — the delta between raw and effective memory',
+                registers: [registry],
+            });
 
-        this.#inactiveFileHistogram = registry.getSingleMetric('back_pressure_container_memory_inactive_file_percent_histogram') || new Histogram({
-            name: 'back_pressure_container_memory_inactive_file_percent_histogram',
-            help: 'Distribution of inactive_file as percent of memory.max per sample interval',
-            buckets: [1, 5, 10, 25, 50, 70, 80, 90, 100],
-            registers: [registry],
-        });
+        this.#inactiveFileHistogram =
+            registry.getSingleMetric('back_pressure_container_memory_inactive_file_percent_histogram') ||
+            new Histogram({
+                name: 'back_pressure_container_memory_inactive_file_percent_histogram',
+                help: 'Distribution of inactive_file as percent of memory.max per sample interval',
+                buckets: [1, 5, 10, 25, 50, 70, 80, 90, 100],
+                registers: [registry],
+            });
 
-        this.#memoryModeGauge = registry.getSingleMetric('back_pressure_container_memory_mode') || new Gauge({
-            name: 'back_pressure_container_memory_mode',
-            help: '1 = V1 mode (raw: memory.current/memory.max), 0 = V2 mode (effective: subtracts inactive_file)',
-            registers: [registry],
-        });
+        this.#memoryModeGauge =
+            registry.getSingleMetric('back_pressure_container_memory_mode') ||
+            new Gauge({
+                name: 'back_pressure_container_memory_mode',
+                help: '1 = V1 mode (raw: memory.current/memory.max), 0 = V2 mode (effective: subtracts inactive_file)',
+                registers: [registry],
+            });
 
-        this.#memEventsHighCounter = registry.getSingleMetric('back_pressure_mem_events_high_total') || new client.Counter({
-            name: 'back_pressure_mem_events_high_total',
-            help: 'Cumulative memory.events high events (memory usage exceeded the high boundary). ' +
-                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
-            registers: [registry],
-        });
+        this.#memEventsHighCounter =
+            registry.getSingleMetric('back_pressure_mem_events_high_total') ||
+            new client.Counter({
+                name: 'back_pressure_mem_events_high_total',
+                help:
+                    'Cumulative memory.events high events (memory usage exceeded the high boundary). ' +
+                    'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
+                registers: [registry],
+            });
 
-        this.#memEventsMaxCounter = registry.getSingleMetric('back_pressure_mem_events_max_total') || new client.Counter({
-            name: 'back_pressure_mem_events_max_total',
-            help: 'Cumulative memory.events max events (memory usage hit the hard limit). ' +
-                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
-            registers: [registry],
-        });
+        this.#memEventsMaxCounter =
+            registry.getSingleMetric('back_pressure_mem_events_max_total') ||
+            new client.Counter({
+                name: 'back_pressure_mem_events_max_total',
+                help:
+                    'Cumulative memory.events max events (memory usage hit the hard limit). ' +
+                    'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
+                registers: [registry],
+            });
 
-        this.#memEventsOomCounter = registry.getSingleMetric('back_pressure_mem_events_oom_total') || new client.Counter({
-            name: 'back_pressure_mem_events_oom_total',
-            help: 'Cumulative memory.events oom events (OOM killer invoked). ' +
-                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
-            registers: [registry],
-        });
+        this.#memEventsOomCounter =
+            registry.getSingleMetric('back_pressure_mem_events_oom_total') ||
+            new client.Counter({
+                name: 'back_pressure_mem_events_oom_total',
+                help:
+                    'Cumulative memory.events oom events (OOM killer invoked). ' +
+                    'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
+                registers: [registry],
+            });
 
-        this.#memEventsOomKillCounter = registry.getSingleMetric('back_pressure_mem_events_oom_kill_total') || new client.Counter({
-            name: 'back_pressure_mem_events_oom_kill_total',
-            help: 'Cumulative memory.events oom_kill events (process killed by OOM killer). ' +
-                'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
-            registers: [registry],
-        });
+        this.#memEventsOomKillCounter =
+            registry.getSingleMetric('back_pressure_mem_events_oom_kill_total') ||
+            new client.Counter({
+                name: 'back_pressure_mem_events_oom_kill_total',
+                help:
+                    'Cumulative memory.events oom_kill events (process killed by OOM killer). ' +
+                    'cgroup v2 only — zero on v1 hosts or when memory.max is unlimited.',
+                registers: [registry],
+            });
 
         this.#timer = setInterval(() => this.#tick(), this.#sampleIntervalMs);
         this.#timer.unref?.();
 
         this.#memTimer = setInterval(() => {
             this.#updateContainerMemory().catch((err) => {
-                console.warn('Backpressure container memory update failed:', err instanceof Error ? err.message : String(err));
+                console.warn(
+                    'Backpressure container memory update failed:',
+                    err instanceof Error ? err.message : String(err)
+                );
             });
         }, 5000);
         this.#memTimer.unref?.();
@@ -267,7 +326,7 @@ class BackPressureSampler {
 
     async warmup() {
         await this.#updateContainerMemory();
-        this.#memoryModeGauge.set(process.env["METRICS.BACKPRESSURE.MEMORY_MODE"] === "v1" ? 1 : 0);
+        this.#memoryModeGauge.set(process.env['METRICS.BACKPRESSURE.MEMORY_MODE'] === 'v1' ? 1 : 0);
         this.#tick();
     }
 
@@ -330,7 +389,7 @@ class BackPressureSampler {
                 const statContent = await fs.readFile(this.#cgroupStatPath, 'utf8');
                 const match = statContent.match(/^inactive_file\s+(\d+)$/m);
                 if (match) inactiveFile = BigInt(match[1]);
-            } catch { }
+            } catch {}
 
             const effectiveUsage = usageRaw > inactiveFile ? usageRaw - inactiveFile : 0n;
 
@@ -360,13 +419,16 @@ class BackPressureSampler {
                     if (cur.oom > prev.oom) this.#memEventsOomCounter.inc(cur.oom - prev.oom);
                     if (cur.oom_kill > prev.oom_kill) this.#memEventsOomKillCounter.inc(cur.oom_kill - prev.oom_kill);
                     this.#memEventsPrev = cur;
-                } catch { }
+                } catch {}
             }
         } catch (err) {
             if (this.#stopped) return;
             this.#cgroupFailures++;
             if (this.#cgroupFailures >= 3) {
-                console.warn('Disabling backpressure cgroup memory check after repeated failures:', err instanceof Error ? err.message : String(err));
+                console.warn(
+                    'Disabling backpressure cgroup memory check after repeated failures:',
+                    err instanceof Error ? err.message : String(err)
+                );
                 this.#cgroupSupported = false;
                 this.#containerMemoryPercent = 0;
                 this.#containerMemoryRawPercent = 0;
@@ -396,11 +458,12 @@ class BackPressureSampler {
         const lagP99 = finiteOrZero(this.#sampleLagP99Ms());
         const activeReqs = finiteOrZero(getActiveRequests());
         const p95 = finiteOrZero(getP95Latency());
-        const containerMem = process.env["METRICS.BACKPRESSURE.MEMORY_MODE"] === "v1"
-            ? finiteOrZero(this.#containerMemoryRawPercent)
-            : finiteOrZero(this.#containerMemoryPercent);
+        const containerMem =
+            process.env['METRICS.BACKPRESSURE.MEMORY_MODE'] === 'v1'
+                ? finiteOrZero(this.#containerMemoryRawPercent)
+                : finiteOrZero(this.#containerMemoryPercent);
 
-        this.#memoryModeGauge.set(process.env["METRICS.BACKPRESSURE.MEMORY_MODE"] === "v1" ? 1 : 0);
+        this.#memoryModeGauge.set(process.env['METRICS.BACKPRESSURE.MEMORY_MODE'] === 'v1' ? 1 : 0);
         this.#cpuGauge.set(parseFloat(cpu.toFixed(2)));
         this.#heapGauge.set(parseFloat(heap.toFixed(2)));
         this.#eluGauge.set(parseFloat(elu.toFixed(4)));
@@ -428,10 +491,14 @@ class BackPressureSampler {
             breachReason = 'BP_01_H';
         } else if (cpu > this.#cpuThreshold) {
             breachReason = 'BP_02_C';
-        } else if (elu > this.#eluThreshold && (this.#lagThresholdMs === Infinity || lagP99 > this.#lagThresholdMs)) {
+        } else if (elu > this.#eluThreshold) {
+            // ELU alone triggers an event-loop overload signal
             breachReason = 'BP_03_EL';
+        } else if (this.#lagThresholdMs < Infinity && lagP99 > this.#lagThresholdMs) {
+            // Lag is an independent trigger when explicitly configured
+            breachReason = 'BP_03_LAG';
         } else if (containerMem > 0 && containerMem > this.#containerMemoryThreshold) {
-            breachReason = process.env["METRICS.BACKPRESSURE.MEMORY_MODE"] === "v1" ? 'BP_04_CM_V1' : 'BP_04_CM_V2';
+            breachReason = process.env['METRICS.BACKPRESSURE.MEMORY_MODE'] === 'v1' ? 'BP_04_CM_V1' : 'BP_04_CM_V2';
         } else if (this.#activeRequestsThreshold < Infinity && activeReqs > this.#activeRequestsThreshold) {
             breachReason = 'BP_05_AR';
         } else if (this.#p95LatencyThreshold < Infinity && p95 > this.#p95LatencyThreshold) {
@@ -465,11 +532,21 @@ class BackPressureSampler {
         this.#overloadedGauge.set(this.#overloaded ? 1 : 0);
     }
 
-    incRejected() { this.#episodeRejections++; }
-    get overloaded() { return this.#overloaded; }
-    get reason() { return this.#lastReason; }
-    get containerMemoryPercent() { return this.#containerMemoryPercent; }
-    get cgroupSupported() { return this.#cgroupSupported; }
+    incRejected() {
+        this.#episodeRejections++;
+    }
+    get overloaded() {
+        return this.#overloaded;
+    }
+    get reason() {
+        return this.#lastReason;
+    }
+    get containerMemoryPercent() {
+        return this.#containerMemoryPercent;
+    }
+    get cgroupSupported() {
+        return this.#cgroupSupported;
+    }
 
     stop() {
         this.#stopped = true;
@@ -487,7 +564,7 @@ const startBackPressure = (cfg = {}) => {
     if (_sampler) {
         console.warn(
             'startBackPressure: sampler is already running. ' +
-            'Call stopBackPressure() first to reinitialise with new config.'
+                'Call stopBackPressure() first to reinitialise with new config.'
         );
         return;
     }
@@ -499,18 +576,18 @@ const startBackPressure = (cfg = {}) => {
     });
 };
 
-
 const stopBackPressure = () => {
     _sampler?.stop();
     _sampler = null;
 };
 
-
 const backPressureMiddleware = (cfg = {}) => {
     const mergedCfg = { ...config.backPressure, ...cfg };
 
     if (!mergedCfg.enabled) {
-        return (_req, _res, next) => next();
+        return (_req, _res, next) => {
+            if (typeof next === 'function') next();
+        };
     }
 
     if (!_sampler) {
@@ -521,14 +598,24 @@ const backPressureMiddleware = (cfg = {}) => {
     } else if (Object.keys(cfg).length > 0) {
         console.warn(
             'backPressureMiddleware: configuration ignored because the sampler is already initialized. ' +
-            'Call stopBackPressure() before reinitializing it.'
+                'Call stopBackPressure() before reinitializing it.'
         );
     }
 
-    const exempt = mergedCfg.exemptPaths?.length
-        ? new Set([...EXEMPT_PATHS, ...mergedCfg.exemptPaths])
-        : EXEMPT_PATHS;
+    const exempt = mergedCfg.exemptPaths?.length ? new Set([...EXEMPT_PATHS, ...mergedCfg.exemptPaths]) : EXEMPT_PATHS;
     const isExempt = (path) => {
+        if (!path) return false;
+        // Probe and metrics endpoints are unconditionally exempt from load shedding
+        if (
+            path === '/health' ||
+            path === '/ready' ||
+            path === '/metrics' ||
+            path.endsWith('/health') ||
+            path.endsWith('/ready') ||
+            path.endsWith('/metrics')
+        ) {
+            return true;
+        }
         for (const exemptPath of exempt) {
             if (path === exemptPath || path.startsWith(`${exemptPath}/`)) return true;
         }
@@ -536,17 +623,26 @@ const backPressureMiddleware = (cfg = {}) => {
     };
 
     return (req, res, next) => {
-        if (isExempt(req.path)) return next();
-        if (process.env["METRICS.BACKPRESSURE.ENABLED"] !== "true") return next();
+        const path = req.path || (typeof req.url === 'string' ? req.url.split('?')[0] : '');
+        if (isExempt(path)) {
+            if (typeof next === 'function') return next();
+            return;
+        }
+
         if (_sampler?.overloaded) {
             _sampler.incRejected();
-            return res.status(429).json({
+            if (typeof res?.setHeader === 'function') {
+                res.setHeader('Retry-After', '5');
+            }
+            return sendJson(req, res, 429, {
+                statusCode: 429,
+                error: 'Too Many Requests',
                 message: 'Server cannot accept more work temporarily',
-                reason: _sampler.reason ?? 'unknown',
+                reason: _sampler.reason ?? 'overload',
             });
         }
 
-        next();
+        if (typeof next === 'function') next();
     };
 };
 

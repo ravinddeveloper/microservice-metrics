@@ -1,27 +1,97 @@
 {
-  "name": "@latitudenpm/metrics",
-  "version": "1.0.44",
-  "description": "Reusable observability package — Prometheus metrics, health/readiness endpoints, HTTP middleware",
+  "name": "microservice-metrics",
+  "version": "1.0.0",
+  "description": "Production-ready Prometheus metrics, W3C distributed tracing, correlation IDs, health checks, circuit breakers, and back-pressure load shedding for Node.js microservices (Express, Fastify, Koa, NestJS).",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/types/index.d.ts",
+  "sideEffects": false,
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/cjs/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
   },
   "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:types": "tsc --noEmit",
+    "bench": "node benchmarks/benchmark.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --check \"src/**/*.js\" \"test/**/*.js\" \"benchmarks/**/*.js\" \"eslint.config.js\"",
+    "format:write": "prettier --write \"src/**/*.js\" \"test/**/*.js\" \"benchmarks/**/*.js\" \"eslint.config.js\"",
+    "clean": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",
+    "prebuild": "npm run clean",
+    "build:esm": "npx babel src --out-dir dist",
+    "build:cjs": "npx babel src --out-dir dist/cjs --config-file ./babel.cjs.config.json",
+    "build": "npm run build:esm && npm run build:cjs && node scripts/copy-types.mjs",
+    "build:dev": "npx babel src --out-dir dist --watch",
+    "prepack": "npm run build",
     "prepublishOnly": "npm run build",
-    "test": "mocha --recursive --timeout 90000",
-    "build": "npx babel src --out-dir dist",
-    "build:dev": "npx babel src --out-dir dist --watch"
+    "check": "npm run test:types && npm run lint && npm run format && npm test"
   },
   "keywords": [
-    "metrics"
+    "microservice-metrics",
+    "metrics",
+    "prometheus",
+    "prometheus-metrics",
+    "prom-client",
+    "microservices",
+    "microservice",
+    "monitoring",
+    "telemetry",
+    "observability",
+    "node-metrics",
+    "express-metrics",
+    "fastify-metrics",
+    "distributed-tracing",
+    "tracing",
+    "opentelemetry",
+    "otel",
+    "traceparent",
+    "tracestate",
+    "w3c-trace-context",
+    "correlation-id",
+    "request-id",
+    "apm",
+    "microservice-monitoring",
+    "express",
+    "fastify",
+    "nestjs",
+    "koa",
+    "healthcheck",
+    "liveness",
+    "readiness",
+    "pino",
+    "winston",
+    "logger",
+    "circuit-breaker",
+    "backpressure",
+    "load-shedding",
+    "node-observability",
+    "grafana",
+    "datadog",
+    "kubernetes",
+    "k8s",
+    "cloud-native",
+    "devops",
+    "performance"
   ],
-  "author": "Ravi N D",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
-    "graphql": "16.14.0",
     "ip-range-check": "0.2.0",
-    "mongoose": "8.24.0",
     "node-cron": "4.2.1",
     "opossum": "10.0.0",
     "prom-client": "15.1.0"
@@ -29,23 +99,44 @@
   "devDependencies": {
     "@babel/cli": "7.23.0",
     "@babel/core": "7.23.0",
+    "@babel/plugin-transform-modules-commonjs": "^7.23.0",
     "@babel/plugin-transform-runtime": "7.22.15",
     "@babel/preset-env": "7.22.20",
+    "@eslint/js": "^9.20.0",
     "babel-loader": "8.3.0",
-    "babel-polyfill": "6.26.0",
-    "babel-preset-es2015": "6.24.1",
-    "babel-preset-stage-0": "6.24.1"
+    "eslint": "^9.20.0",
+    "graphql": "16.14.0",
+    "mongoose": "8.24.0",
+    "prettier": "^3.5.1",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
   },
   "peerDependencies": {
-    "express": ">=4.0.0"
+    "express": ">=4.0.0",
+    "fastify": ">=4.0.0 || >=5.0.0",
+    "graphql": ">=14.0.0 || >=15.0.0 || >=16.0.0",
+    "koa": ">=2.0.0",
+    "mongoose": ">=7.0.0 || >=8.0.0"
   },
   "peerDependenciesMeta": {
     "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "graphql": {
+      "optional": true
+    },
+    "koa": {
+      "optional": true
+    },
+    "mongoose": {
       "optional": true
     }
   },
   "repository": {
     "type": "git",
-    "url": "https://gitlab.ezeefin.ai/ezee/microservices/npm-packages/microservice-metrics.git"
+    "url": "https://github.com/open-observability/node-service-observability.git"
   }
 }

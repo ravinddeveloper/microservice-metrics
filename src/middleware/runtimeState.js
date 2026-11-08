@@ -2,8 +2,18 @@ import v8 from 'v8';
 import os from 'os';
 import { performance } from 'node:perf_hooks';
 
-const MAX_SAMPLES = Number(process.env['METRICS.BACKPRESSURE.MAX_SAMPLES'] ?? 1000);
-const RESET_WINDOW_MS = Number(process.env['METRICS.BACKPRESSURE.RESET_WINDOW_MS'] ?? 300_000);
+const MAX_SAMPLES = Number(
+    (process.env.BACKPRESSURE_MAX_SAMPLES ||
+        process.env.METRICS_BACKPRESSURE_MAX_SAMPLES ||
+        process.env['METRICS.BACKPRESSURE.MAX_SAMPLES']) ??
+        1000
+);
+const RESET_WINDOW_MS = Number(
+    (process.env.BACKPRESSURE_RESET_WINDOW_MS ||
+        process.env.METRICS_BACKPRESSURE_RESET_WINDOW_MS ||
+        process.env['METRICS.BACKPRESSURE.RESET_WINDOW_MS']) ??
+        300_000
+);
 const CPU_EMA_ALPHA = 0.35;
 
 let activeRequests = 0;
@@ -21,8 +31,13 @@ let _cpuInitialized = false;
 
 let _eluPrev = performance.eventLoopUtilization();
 
-function incrementActive() { activeRequests++; }
-function decrementActive() { activeRequests = Math.max(0, activeRequests - 1); }
+function incrementActive() {
+    activeRequests++;
+}
+
+function decrementActive() {
+    activeRequests = Math.max(0, activeRequests - 1);
+}
 
 function recordLatency(ms) {
     latencies[writeIndex] = ms;
@@ -30,7 +45,9 @@ function recordLatency(ms) {
     if (sampleCount < MAX_SAMPLES) sampleCount++;
 }
 
-function getActiveRequests() { return activeRequests; }
+function getActiveRequests() {
+    return activeRequests;
+}
 
 function getCpuPercent() {
     const now = process.hrtime.bigint();
@@ -38,7 +55,7 @@ function getCpuPercent() {
     const elapsedUs = Number(now - _cpuTimePrev) / 1e3;
     if (elapsedUs <= 0) return _smoothedCpu;
 
-    const cpuUs = (usage.user - _cpuUsagePrev.user) + (usage.system - _cpuUsagePrev.system);
+    const cpuUs = usage.user - _cpuUsagePrev.user + (usage.system - _cpuUsagePrev.system);
     const rawPercent = Math.min(100, (cpuUs / elapsedUs / _numCpus) * 100);
     _cpuUsagePrev = usage;
     _cpuTimePrev = now;
@@ -66,6 +83,11 @@ const resetTimer = setInterval(() => {
 }, RESET_WINDOW_MS);
 resetTimer.unref?.();
 
+/**
+ * Returns a point-in-time snapshot of runtime health (CPU, memory, event loop, active requests, latencies).
+ *
+ * @returns {object} Runtime telemetry snapshot
+ */
 function getSnapshot() {
     const cpu = getCpuPercent();
     const eluNow = performance.eventLoopUtilization();
@@ -115,4 +137,12 @@ function getSnapshot() {
     };
 }
 
-export { incrementActive, decrementActive, recordLatency, getActiveRequests, getP95Latency, getCpuPercent, getSnapshot };
+export {
+    incrementActive,
+    decrementActive,
+    recordLatency,
+    getActiveRequests,
+    getP95Latency,
+    getCpuPercent,
+    getSnapshot,
+};

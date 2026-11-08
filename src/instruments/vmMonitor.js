@@ -9,25 +9,36 @@ import {
     defaultLabelValues,
 } from '../metrics.js';
 
-const getCpuUsagePerCore = () => new Promise((resolve) => {
-    setTimeout(() => {
-        const cores = os.cpus().map((cpu, i) => {
-            const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
-            const usage = ((1 - cpu.times.idle / total) * 100).toFixed(2);
-            return { core: `core ${i + 1}`, usage };
-        });
-        resolve(cores);
-    }, 1000);
-});
+/**
+ * Returns CPU usage percent per core by computing the delta between two os.cpus() snapshots
+ * separated by sampleMs milliseconds. This is accurate unlike a single snapshot.
+ */
+const getCpuUsagePerCore = (sampleMs = 500) =>
+    new Promise((resolve) => {
+        const before = os.cpus();
+        setTimeout(() => {
+            const after = os.cpus();
+            const cores = after.map((cpu, i) => {
+                const prev = before[i] || cpu;
+                const deltaIdle = cpu.times.idle - prev.times.idle;
+                const deltaTotal =
+                    Object.values(cpu.times).reduce((a, b) => a + b, 0) -
+                    Object.values(prev.times).reduce((a, b) => a + b, 0);
+                const usage = deltaTotal > 0 ? (((deltaTotal - deltaIdle) / deltaTotal) * 100).toFixed(2) : '0.00';
+                return { core: `core ${i + 1}`, usage };
+            });
+            resolve(cores);
+        }, sampleMs);
+    });
 
 const getAllFilesInDirectory = async (directory) => {
     const dirents = await fs.promises.readdir(directory, { withFileTypes: true });
-    const results = await Promise.all(dirents.map(async (dirent) => {
-        const res = path.resolve(directory, dirent.name);
-        return dirent.isDirectory()
-            ? getAllFilesInDirectory(res)
-            : { size: (await fs.promises.stat(res)).size };
-    }));
+    const results = await Promise.all(
+        dirents.map(async (dirent) => {
+            const res = path.resolve(directory, dirent.name);
+            return dirent.isDirectory() ? getAllFilesInDirectory(res) : { size: (await fs.promises.stat(res)).size };
+        })
+    );
     return results.flat();
 };
 
