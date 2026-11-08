@@ -1,6 +1,6 @@
 {
   "name": "microservice-metrics",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "description": "Production-ready Prometheus metrics, W3C distributed tracing, correlation IDs, health checks, circuit breakers, and back-pressure load shedding for Node.js microservices (Express, Fastify, Koa, NestJS).",
   "type": "module",
   "main": "./dist/cjs/index.js",
@@ -137,6 +137,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/open-observability/node-service-observability.git"
+    "url": "https://github.com/open-observability/microservice-metrics.git"
   }
 }
