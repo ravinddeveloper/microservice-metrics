@@ -667,26 +667,6 @@ Benchmarked on Node.js v24 (run via `npm run bench`):
 | `metricsMiddleware` | **~240,000 ops/sec** | Full HTTP request & response observation cycle |
 | `getSnapshot` | **~140,000 ops/sec** | Point-in-time runtime telemetry snapshot |
 
----
-
-## Development & Quality Checks
-
-```bash
-# Run all quality checks (TypeScript + ESLint + Prettier + Vitest)
-npm run check
-
-# Run tests
-npm test
-
-# Run benchmarks
-npm run bench
-
-# Lint and format
-npm run lint
-npm run format
-```
-
----
 
 ## License
 
