@@ -190,9 +190,202 @@ export function createMongoCheck(mongooseInstance: any, options?: { timeoutMs?: 
 export function createRedisCheck(redisClient: any, options?: { timeoutMs?: number }): () => Promise<string>;
 export function createMemoryCheck(options?: { maxHeapBytes?: number; maxHeapPercent?: number }): () => string;
 
-export function metricsHandler(): (reqOrCtx: any, resOrReply?: any) => Promise<void>;
+export interface MetricsHandlerOptions {
+    enableDashboard?: boolean;
+    title?: string;
+    metricsEndpoint?: string;
+    refreshInterval?: number;
+    sloThresholdMs?: number;
+}
+
+export interface DashboardHandlerOptions {
+    enabled?: boolean;
+    title?: string;
+    metricsEndpoint?: string;
+    refreshInterval?: number;
+    sloThresholdMs?: number;
+    registry?: any;
+}
+
+export interface ExtractMetricsOptions {
+    format?: 'raw' | 'analyzed' | 'analysis' | 'dashboard' | 'grafana' | 'json';
+    registry?: any;
+    title?: string;
+    metricsEndpoint?: string;
+    refreshInterval?: number;
+    sloThresholdMs?: number;
+    serviceName?: string;
+    datasource?: string;
+}
+
+export interface MetricsAnalysisReport {
+    timestamp: string;
+    service: {
+        name: string;
+        environment: string;
+        instance: string;
+        uptimeSeconds: number;
+        nodeVersion: string;
+        pid: number;
+    };
+    health: {
+        status: 'HEALTHY' | 'DEGRADED' | 'CRITICAL';
+        score: number;
+        sloThresholdMs: number;
+    };
+    summary: {
+        totalRequests: number;
+        throughputRps: number;
+        totalErrors: number;
+        errorRate: number;
+        serverErrors: number;
+        serverErrorRate: number;
+        clientErrors: number;
+        clientErrorRate: number;
+        activeRequests: number;
+        avgLatencyMs: number;
+        p50LatencyMs: number;
+        p95LatencyMs: number;
+        p99LatencyMs: number;
+        statusCodes: Record<string, number>;
+        statusCodePercentages: Record<string, number>;
+    };
+    system: {
+        cpuPercent: number;
+        cores: number;
+        heapUsedMb: number;
+        heapLimitMb: number;
+        heapUsedPercent: number;
+        rssMb: number;
+        eventLoopUtilization: number;
+        eventLoopStatus: string;
+    };
+    endpoints: Array<{
+        method: string;
+        path: string;
+        requests: number;
+        errors: number;
+        serverErrors: number;
+        clientErrors: number;
+        errorRate: number;
+        avgLatencyMs: number;
+        statusCodes: Record<string, number>;
+        health: string;
+    }>;
+    slowestEndpoints: any[];
+    failingEndpoints: any[];
+    database: {
+        queriesTotal: number;
+        queryErrors: number;
+        errorRate: number;
+        avgQueryDurationMs: number;
+        slowQueries: number;
+        reconnects: number;
+        active: boolean;
+    };
+    cache: {
+        commandsTotal: number;
+        avgDurationMs: number;
+        hits: number;
+        misses: number;
+        hitRatio: number;
+        connectionErrors: number;
+        connected: boolean;
+        active: boolean;
+    };
+    queue: {
+        publishedTotal: number;
+        consumedTotal: number;
+        avgPublishDurationMs: number;
+        avgConsumeDurationMs: number;
+        publishErrors: number;
+        consumeErrors: number;
+        channelErrors: number;
+        redeliveries: number;
+        activeConsumers: number;
+        connected: boolean;
+        active: boolean;
+    };
+    network: {
+        bytesReceived: number;
+        bytesSent: number;
+        ioErrors: number;
+        activeConnections: number;
+        connectionErrors: number;
+        clientActiveConnections: number;
+        clientErrorsTotal: number;
+    };
+    reliability: {
+        uncaughtExceptions: number;
+        unhandledRejections: number;
+        slowRequests: number;
+        sloViolations: number;
+        timeouts: number;
+        storageUsageMb: number;
+        metricsPayloadKb: number;
+        circuitBreakerOpen: boolean;
+        circuitBreakerRejections: number;
+        circuitBreakerStateChanges: number;
+    };
+    dependencies: Array<{
+        name: string;
+        operation: string;
+        calls: number;
+        failures: number;
+        failureRate: number;
+        avgLatencyMs: number;
+        health: string;
+    }>;
+    circuitBreakers: Array<{
+        name: string;
+        state: string;
+        stats: Record<string, number>;
+    }>;
+    allMetrics: Array<{
+        name: string;
+        help: string;
+        type: string;
+        category?: string;
+        valuesCount: number;
+        totalValue: number;
+        stats?: { count: number; sum: number; avg: number } | null;
+        values: any[];
+    }>;
+    totalMetricsCount: number;
+    customMetrics?: Array<{
+        name: string;
+        help: string;
+        type: string;
+        category?: string;
+        valuesCount: number;
+        totalValue: number;
+        stats?: { count: number; sum: number; avg: number } | null;
+        values: any[];
+    }>;
+    customMetricsCount?: number;
+    insights: Array<{
+        id: string;
+        level: 'healthy' | 'warning' | 'critical' | 'info';
+        category: string;
+        title: string;
+        message: string;
+        recommendation?: string;
+    }>;
+}
+
+export function metricsHandler(options?: MetricsHandlerOptions): (reqOrCtx: any, resOrReply?: any) => Promise<void>;
 export function resetMetricsHandler(): (reqOrCtx: any, resOrReply?: any) => void;
 export function clusterMetricsHandler(): (reqOrCtx: any, resOrReply?: any) => Promise<void>;
+export function dashboardHandler(options?: DashboardHandlerOptions): (reqOrCtx: any, resOrReply?: any) => Promise<void>;
+export function extractMetrics(options?: ExtractMetricsOptions): Promise<string | object>;
+
+// Interactive Dashboard & Automated Analytics
+export function analyzeMetrics(optionsOrRawText?: any): Promise<MetricsAnalysisReport>;
+export function getMetricsAnalysis(options?: any): Promise<MetricsAnalysisReport>;
+export function parsePrometheusText(text: string): any[];
+export function renderMetricsDashboard(analysis: any, options?: { title?: string; metricsEndpoint?: string; refreshInterval?: number }): string;
+export function getGrafanaDashboardJson(options?: { serviceName?: string; title?: string; datasource?: string }): object;
+
 
 // Middlewares
 export function metricsMiddleware(options?: { routeResolver?: (req: any) => string; track404?: boolean }): (req: any, res: any, next?: (err?: any) => void) => void;
@@ -274,6 +467,9 @@ export function isFastifyReply(res: any): boolean;
 export function isExpressResponse(res: any): boolean;
 export function sendJson(reqOrCtx: any, resOrReply: any, statusCode: number, data: any): void;
 export function sendText(reqOrCtx: any, resOrReply: any, statusCode: number, text: string | Buffer, contentType?: string): void;
+export function sendHtml(reqOrCtx: any, resOrReply: any, statusCode: number, html: string): void;
 export function getClientIp(reqOrCtx: any, trustProxy?: boolean): string;
+export function getRequestHeaders(reqOrCtx: any): Record<string, string>;
+export function getRequestQuery(reqOrCtx: any): Record<string, string>;
 export function createGracefulShutdown(options?: GracefulShutdownOptions): { shutdown: (signal?: string) => Promise<void> };
 export const config: ObservabilityOptions;

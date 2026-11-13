@@ -91,6 +91,15 @@ const config = {
         sampleIntervalMs: 1000,
         exemptPaths: [],
     },
+    dashboard: {
+        enabled:
+            process.env.METRICS_DASHBOARD_ENABLED === 'true' ||
+            process.env['METRICS.DASHBOARD.ENABLED'] === 'true' ||
+            false,
+        title: null,
+        refreshInterval: 5,
+        sloThresholdMs: null,
+    },
     metricsToReset: [],
     metricsNotToReset: ['app_uptime_seconds', 'vm_uptime_seconds'],
     resetScheduler: null,

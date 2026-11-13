@@ -40,7 +40,10 @@ export function isFastifyReply(res) {
  */
 export function isExpressResponse(res) {
     return Boolean(
-        res && typeof res === 'object' && typeof res.status === 'function' && typeof res.json === 'function'
+        res &&
+        typeof res === 'object' &&
+        typeof res.status === 'function' &&
+        (typeof res.json === 'function' || typeof res.send === 'function')
     );
 }
 
@@ -151,4 +154,56 @@ export function getClientIp(reqOrCtx, trustProxy = false) {
     }
 
     return req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress || '';
+}
+
+/**
+ * Extracts request headers reliably across frameworks.
+ *
+ * @param {any} reqOrCtx
+ * @returns {Record<string, string>}
+ */
+export function getRequestHeaders(reqOrCtx) {
+    if (!reqOrCtx) return {};
+    if (isKoa(reqOrCtx)) {
+        return reqOrCtx.headers || reqOrCtx.req?.headers || {};
+    }
+    return reqOrCtx.headers || reqOrCtx.raw?.headers || {};
+}
+
+/**
+ * Extracts query parameters reliably across frameworks.
+ *
+ * @param {any} reqOrCtx
+ * @returns {Record<string, string>}
+ */
+export function getRequestQuery(reqOrCtx) {
+    if (!reqOrCtx) return {};
+    if (isKoa(reqOrCtx)) {
+        return reqOrCtx.query || {};
+    }
+    if (reqOrCtx.query && typeof reqOrCtx.query === 'object') {
+        return reqOrCtx.query;
+    }
+    try {
+        const urlStr = reqOrCtx.url || reqOrCtx.req?.url || '';
+        if (urlStr.includes('?')) {
+            const parsed = new URL(urlStr, 'http://localhost');
+            return Object.fromEntries(parsed.searchParams.entries());
+        }
+    } catch {
+        // Fallback for non-URL formats
+    }
+    return {};
+}
+
+/**
+ * Sends an HTML response across any supported framework.
+ *
+ * @param {any} reqOrCtx - First argument from the route handler
+ * @param {any} [resOrReply] - Second argument from the route handler
+ * @param {number} statusCode - HTTP status code
+ * @param {string} html - HTML string
+ */
+export function sendHtml(reqOrCtx, resOrReply, statusCode, html) {
+    return sendText(reqOrCtx, resOrReply, statusCode, html, 'text/html; charset=utf-8');
 }

@@ -89,6 +89,17 @@ export {
     createMemoryCheck,
 } from './endpoints/readiness.js';
 export { metricsHandler, resetMetricsHandler, clusterMetricsHandler } from './endpoints/metricsHandler.js';
+export { dashboardHandler } from './endpoints/dashboardHandler.js';
+export { extractMetrics } from './endpoints/extractMetrics.js';
+
+// Interactive Dashboard & Automated Analytics
+export {
+    analyzeMetrics,
+    getMetricsAnalysis,
+    parsePrometheusText,
+    renderMetricsDashboard,
+    getGrafanaDashboardJson,
+} from './dashboard/index.js';
 
 // Framework Plugins
 export { fastifyMetricsPlugin } from './plugins/fastify.js';
@@ -117,5 +128,15 @@ export { initDebuggingMetrics } from './instruments/debugging.js';
 
 // Utilities & Lifecycle
 export { normalizePath } from './utils/path.js';
-export { isKoa, isFastifyReply, isExpressResponse, sendJson, sendText, getClientIp } from './utils/framework.js';
+export {
+    isKoa,
+    isFastifyReply,
+    isExpressResponse,
+    sendJson,
+    sendText,
+    sendHtml,
+    getClientIp,
+    getRequestHeaders,
+    getRequestQuery,
+} from './utils/framework.js';
 export { createGracefulShutdown } from './utils/shutdown.js';
