@@ -1,6 +1,6 @@
 {
   "name": "microservice-metrics",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Production-ready Prometheus metrics, W3C distributed tracing, correlation IDs, health checks, circuit breakers, and back-pressure load shedding for Node.js microservices (Express, Fastify, Koa, NestJS).",
   "type": "module",
   "main": "./dist/cjs/index.js",

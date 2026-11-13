@@ -579,6 +579,11 @@ export async function analyzeMetrics(optionsOrRawText = {}) {
     const rssMb = parseFloat(((snapshot.memory?.rssBytes || 0) / (1024 * 1024)).toFixed(1));
     const eventLoopUtilization = snapshot.eventLoop?.utilizationRatio || 0;
 
+    // Evaluate host resources (CPU and Event Loop):
+    // Transient startup/JIT spikes on an idle service (0 requests and <30s uptime)
+    // should not degrade overall service health, unless an explicit snapshot was passed for testing.
+    const isStartupIdle = !customSnapshot && totalRequests === 0 && uptimeSeconds < 30;
+
     let eventLoopStatus = 'healthy';
     if (eventLoopUtilization >= 0.8) eventLoopStatus = 'critical';
     else if (eventLoopUtilization >= 0.5) eventLoopStatus = 'degraded';
@@ -723,7 +728,7 @@ export async function analyzeMetrics(optionsOrRawText = {}) {
     }
 
     // CPU Usage
-    if (cpuUsagePercent >= 85) {
+    if (!isStartupIdle && cpuUsagePercent >= 85) {
         healthScore -= 25;
         overallStatus = 'CRITICAL';
         insights.push({
@@ -734,7 +739,7 @@ export async function analyzeMetrics(optionsOrRawText = {}) {
             message: `Process CPU utilization is ${cpuUsagePercent}%, exceeding safe 85% operating ceiling.`,
             recommendation: 'Scale out horizontally with additional instances or worker processes.',
         });
-    } else if (cpuUsagePercent >= 70) {
+    } else if (!isStartupIdle && cpuUsagePercent >= 70) {
         healthScore -= 10;
         if (overallStatus !== 'CRITICAL') overallStatus = 'DEGRADED';
         insights.push({
@@ -773,7 +778,7 @@ export async function analyzeMetrics(optionsOrRawText = {}) {
     }
 
     // Event Loop
-    if (eventLoopUtilization >= 0.8) {
+    if (!isStartupIdle && eventLoopUtilization >= 0.8) {
         healthScore -= 20;
         if (overallStatus !== 'CRITICAL') overallStatus = 'DEGRADED';
         insights.push({

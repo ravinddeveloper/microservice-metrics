@@ -166,4 +166,19 @@ process_cpu_user_seconds_total 12.34
         assert.ok(report.health);
         assert.ok(report.summary);
     });
+
+    test('analyzeMetrics detects simulated high CPU and degrades health accordingly', async () => {
+        const report = await analyzeMetrics({
+            snapshot: {
+                cpu: { usagePercent: 92 },
+                memory: { heapUsedPercent: 30 },
+                eventLoop: { utilizationRatio: 0.1 },
+            },
+        });
+
+        assert.equal(report.health.status, 'CRITICAL');
+        assert.ok(report.health.score < 90);
+        const cpuInsight = report.insights.find((i) => i.id === 'cpu-critical');
+        assert.ok(cpuInsight);
+    });
 });
